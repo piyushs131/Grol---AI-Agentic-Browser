@@ -1,0 +1,25 @@
+diff --git a/chrome/browser/themes/theme_service.cc b/chrome/browser/themes/theme_service.cc
+index cb1dd91e6d..a808a1da0d 100644
+--- a/chrome/browser/themes/theme_service.cc
++++ b/chrome/browser/themes/theme_service.cc
+@@ -320,14 +320,18 @@ void ThemeService::RegisterProfilePrefs(
+   registry->RegisterIntegerPref(
+       prefs::kDeprecatedUserColorDoNotUse, SK_ColorTRANSPARENT,
+       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+-  registry->RegisterIntegerPref(prefs::kUserColor, SK_ColorTRANSPARENT);
++  // Grol: the browser frame and tab strip are tinted from Grol violet by
++  // default (neutral variant: near-white with a violet cast) rather than
++  // the default grey. "Customize" still lets the user pick anything.
++  registry->RegisterIntegerPref(prefs::kUserColor,
++                                static_cast<int>(SkColorSetRGB(0x7C, 0x3A, 0xED)));
+   registry->RegisterIntegerPref(
+       prefs::kDeprecatedBrowserColorVariantDoNotUse,
+       static_cast<int>(ui::mojom::BrowserColorVariant::kSystem),
+       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+   registry->RegisterIntegerPref(
+       prefs::kBrowserColorVariant,
+-      static_cast<int>(ui::mojom::BrowserColorVariant::kSystem));
++      static_cast<int>(ui::mojom::BrowserColorVariant::kNeutral));
+   registry->RegisterBooleanPref(
+       prefs::kDeprecatedGrayscaleThemeEnabledDoNotUse, false,
+       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);

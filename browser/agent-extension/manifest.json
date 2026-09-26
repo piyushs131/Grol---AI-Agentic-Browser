@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Grol Agent",
+  "version": "0.1.0",
+  "description": "Drives pages for the Grol agent over the DevTools protocol.",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "debugger",
+    "tabs",
+    "scripting",
+    "activeTab",
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1/*",
+    "ws://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Grol Agent",
+    "default_icon": {
+      "16": "icons/grol-16.png",
+      "32": "icons/grol-32.png"
+    }
+  },
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy8sEPlCZZa0n/yGAsi5DC0sI99fN1HbFfPsHlpIjIlEmbM8CbwDnJZBbhxm8LcrgKUhaF0Vz8tTWo9eucQcP5EU6aWHtMmwPw8eROV2JhCBo/BWoVuoJw/huHrlXrDCdQ+wvCMp46hclOk24SffB5e7x0UGO5GB3O7o5vWNgwgLTkpTVmKw3jK0mkdLACRJloKw5GXeuU2haH8Myn+w9ANJMji8+L6Ee96fE3cA1PJbZEyr9id9rUHQQxBEccBAkv1S6rfC8NvgjtfNGeNAUs09FrMKkR9gqnnrvCVeoGEYwegydZvk2vDGvjd7TgeDU7J1HTSlirCOh49099BvwaQIDAQAB",
+  "icons": {
+    "16": "icons/grol-16.png",
+    "32": "icons/grol-32.png",
+    "48": "icons/grol-48.png",
+    "128": "icons/grol-128.png"
+  }
+}

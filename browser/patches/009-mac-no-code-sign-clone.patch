@@ -1,0 +1,16 @@
+diff --git a/chrome/browser/mac/code_sign_clone_manager.mm b/chrome/browser/mac/code_sign_clone_manager.mm
+index 97abe9476b..eee49b5715 100644
+--- a/chrome/browser/mac/code_sign_clone_manager.mm
++++ b/chrome/browser/mac/code_sign_clone_manager.mm
+@@ -510,7 +510,10 @@ void RecordCloneExists(MacCloneExists exists) {
+ 
+ namespace code_sign_clone_manager {
+ 
+-BASE_FEATURE(kMacAppCodeSignClone, base::FEATURE_ENABLED_BY_DEFAULT);
++// Grol: off. The clone protects in-place updates of a signed release, which
++// Grol does not ship yet; for an ad-hoc-signed build it fails to strip the
++// quarantine attribute on every launch. Re-enable with Developer ID releases.
++BASE_FEATURE(kMacAppCodeSignClone, base::FEATURE_DISABLED_BY_DEFAULT);
+ 
+ BASE_FEATURE(kMacAppCodeSignCloneRenameAsBundle,
+              base::FEATURE_ENABLED_BY_DEFAULT);

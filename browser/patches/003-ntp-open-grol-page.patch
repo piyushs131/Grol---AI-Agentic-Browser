@@ -1,0 +1,18 @@
+diff --git a/chrome/browser/profiles/profile_impl.cc b/chrome/browser/profiles/profile_impl.cc
+index 81e83a8848..acea98f8fd 100644
+--- a/chrome/browser/profiles/profile_impl.cc
++++ b/chrome/browser/profiles/profile_impl.cc
+@@ -424,8 +424,11 @@ void ProfileImpl::RegisterProfilePrefs(
+ #endif
+   registry->RegisterStringPref(prefs::kHomePage, std::string(),
+                                home_page_flags);
+-  registry->RegisterStringPref(prefs::kNewTabPageLocationOverride,
+-                               std::string());
++  // Grol: new tabs and the startup tab open the built-in agent page instead
++  // of Google's NTP. A policy can still override it.
++  registry->RegisterStringPref(
++      prefs::kNewTabPageLocationOverride,
++      "chrome-extension://ebhlbffbihmgefabpeglnhjadadhcmjc/newtab.html");
+ 
+ #if BUILDFLAG(ENABLE_PRINTING)
+   registry->RegisterBooleanPref(prefs::kPrintingEnabled, true);

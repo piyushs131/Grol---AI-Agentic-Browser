@@ -1,0 +1,17 @@
+diff --git a/chrome/browser/ui/startup/first_run_service.cc b/chrome/browser/ui/startup/first_run_service.cc
+index 7e1709c674..39ca9aee83 100644
+--- a/chrome/browser/ui/startup/first_run_service.cc
++++ b/chrome/browser/ui/startup/first_run_service.cc
+@@ -295,6 +295,12 @@ FirstRunServiceFactory::BuildServiceInstanceForBrowserContext(
+ // Helpers ---------------------------------------------------------------------
+ 
+ bool ShouldOpenFirstRun(Profile* profile) {
++  // Grol: skip the upstream welcome screen ("Start", default-browser
++  // toggle). Grol's own home page and agent panel onboard the user instead.
++  // --grol-first-run brings the upstream flow back for testing.
++  if (!base::CommandLine::ForCurrentProcess()->HasSwitch("grol-first-run")) {
++    return false;
++  }
+   return IsFirstRunEligibleProcess() && IsFirstRunEligibleProfile(profile) &&
+          !IsFirstRunMarkedFinishedInPrefs();
+ }

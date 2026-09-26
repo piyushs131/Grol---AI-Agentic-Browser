@@ -1,0 +1,11 @@
+{
+  "name": "grol",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "postinstall": "npm --prefix ai-agent-os install --no-audit --no-fund",
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\" \"tests/**/*.test.mjs\"",
+    "check": "npm --prefix ai-agent-os run check && npm test"
+  }
+}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Grol</title>
+  <link rel="icon" href="icons/grol-32.png">
+  <link rel="stylesheet" href="newtab.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="logo">
+      <img class="ring" src="logo.svg" alt="">
+      <h1 class="title">Grol<sup>AI</sup></h1>
+    </div>
+  </div>
+
+  <div class="cmd">
+    <svg class="lens" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" autofocus autocomplete="off"
+           placeholder="Search or ask me to do something">
+    <button class="send" id="go" title="Run">&rarr;</button>
+  </div>
+
+  <div class="modes">
+    <button class="mode" data-mode="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search</button>
+    <button class="mode active" data-mode="action"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>Action</button>
+    <button class="mode" data-mode="os"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>OS Control</button>
+  </div>
+  <div class="hint" id="hint"></div>
+
+  <div class="catlabel">Try these tasks:</div>
+  <div class="cats" id="cats"></div>
+  <div class="cards" id="cards"></div>
+
+  <div id="log"></div>
+</div>
+
+<div class="status"><span class="dot" id="osdot"></span><span id="osText">OS Control: checking…</span></div>
+<script src="newtab.js"></script>
+</body>
+</html>

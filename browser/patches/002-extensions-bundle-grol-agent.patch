@@ -1,0 +1,67 @@
+diff --git a/chrome/browser/extensions/component_loader.cc b/chrome/browser/extensions/component_loader.cc
+index 80927be5ad..6e202dd775 100644
+--- a/chrome/browser/extensions/component_loader.cc
++++ b/chrome/browser/extensions/component_loader.cc
+@@ -18,6 +18,7 @@
+ #include "base/logging.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "base/path_service.h"
++#include "base/threading/thread_restrictions.h"
+ #include "base/time/time.h"
+ #include "base/trace_event/trace_event.h"
+ #include "base/values.h"
+@@ -721,6 +722,30 @@ void ComponentLoader::AddDefaultComponentExtensionsForKioskMode(
+ #endif
+ }
+ 
++void ComponentLoader::AddGrolAgentExtension() {
++  base::FilePath dir;
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  if (command_line->HasSwitch("grol-agent-dir")) {
++    dir = command_line->GetSwitchValuePath("grol-agent-dir");
++  } else {
++    CHECK(base::PathService::Get(chrome::DIR_RESOURCES, &dir));
++    dir = dir.Append(FILE_PATH_LITERAL("grol_agent"));
++  }
++  // The manifest is read from disk (it carries a stable "key"): a few KB of
++  // blocking IO on the UI thread, once, during startup.
++  base::ScopedAllowBlockingForTesting allow_blocking;
++  dir = base::MakeAbsoluteFilePath(dir);
++  std::string error;
++  std::optional<base::DictValue> manifest =
++      file_util::LoadManifest(dir, &error);
++  if (!manifest) {
++    LOG(ERROR) << "Grol agent not loaded from " << dir << ": " << error;
++    return;
++  }
++  Add(std::move(*manifest), dir, /*skip_allowlist=*/true);
++}
++
+ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
+     bool skip_session_components) {
+   const base::CommandLine* command_line =
+@@ -786,6 +811,7 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
+   AddAimEligibilityExtension();
+   AddGlicExtension();
+   AddContextualTasksExtension();
++  AddGrolAgentExtension();
+ 
+ // http://crbug.com/41070702
+ #if BUILDFLAG(GOOGLE_CHROME_BRANDING) && !BUILDFLAG(IS_CHROMEOS)
+diff --git a/chrome/browser/extensions/component_loader.h b/chrome/browser/extensions/component_loader.h
+index 0a47e6ac8a..32a50f6831 100644
+--- a/chrome/browser/extensions/component_loader.h
++++ b/chrome/browser/extensions/component_loader.h
+@@ -239,6 +239,11 @@ class ComponentLoader : public KeyedService {
+ 
+   void AddContextualTasksExtension();
+ 
++  // Grol: the agent ships inside the browser rather than as a removable
++  // extension. Loaded from --grol-agent-dir if given (development), else from
++  // grol_agent/ in the framework's Resources.
++  void AddGrolAgentExtension();
++
+   void AddWithNameAndDescription(int manifest_resource_id,
+                                  const base::FilePath& root_directory,
+                                  const std::string& name_string,

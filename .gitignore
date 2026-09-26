@@ -1,0 +1,26 @@
+node_modules/
+*.log
+browser/companion/logs/
+
+# Build output
+browser/dist/
+out/
+
+# Machine-specific
+browser/config/.sdk_path
+.agent-os-data/
+
+# Secrets
+*.pem
+*.key
+.env
+.env.*
+config.local.json
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+__pycache__/

@@ -1,0 +1,31 @@
+diff --git a/chrome/app/chrome_main_delegate.cc b/chrome/app/chrome_main_delegate.cc
+index c6dfce70e6..6f4d712854 100644
+--- a/chrome/app/chrome_main_delegate.cc
++++ b/chrome/app/chrome_main_delegate.cc
+@@ -1175,6 +1175,26 @@ void ChromeMainDelegate::SetupTracing() {
+ }
+ 
+ std::optional<int> ChromeMainDelegate::BasicStartupComplete() {
++#if BUILDFLAG(IS_MAC) && !defined(BUILDING_CHROME_RENDERER)
++  // Grol: this build has no Metal backend (angle_enable_metal=false, see
++  // browser/scripts/build.sh), so left alone the GPU process finds no usable
++  // display and exits. Select ANGLE's desktop-GL backend and keep raster off
++  // the GPU (its IOSurface path is incompatible with this backend). These
++  // used to be passed by run.sh only, so the app misrendered when opened
++  // from Finder or the Dock. Explicit command-line values still win; the
++  // browser process forwards both switches to its GPU and renderer children.
++  {
++    base::CommandLine* grol_cl = base::CommandLine::ForCurrentProcess();
++    if (!grol_cl->HasSwitch("type")) {
++      if (!grol_cl->HasSwitch("use-angle")) {
++        grol_cl->AppendSwitchASCII("use-angle", "gl");
++      }
++      if (!grol_cl->HasSwitch("enable-gpu-rasterization")) {
++        grol_cl->AppendSwitch("disable-gpu-rasterization");
++      }
++    }
++  }
++#endif
+ #if BUILDFLAG(IS_CHROMEOS)
+   ash::BootTimesRecorder::Get()->SaveChromeMainStats();
+ #endif

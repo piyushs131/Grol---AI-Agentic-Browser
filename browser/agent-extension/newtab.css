@@ -1,0 +1,73 @@
+:root {
+  --bg:#ffffff; --panel:#ffffff; --soft:#f4f4f7; --edge:#ececf2; --text:#1d1d24; --muted:#8b8b98;
+  --accent:#8b5cf6; --accent2:#6366f1; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444;
+  --shadow:0 8px 30px rgba(99,102,241,.10), 0 2px 6px rgba(20,20,40,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#111116; --panel:#18181f; --soft:#20202a; --edge:#2a2a35; --text:#ececf2; --muted:#8d8d9a;
+    --shadow:0 8px 30px rgba(0,0,0,.35); }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.5 "Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+  min-height:100vh; display:flex; justify-content:center; -webkit-font-smoothing:antialiased; }
+.wrap { width:100%; max-width:780px; padding:12vh 24px 48px; }
+
+.header { display:flex; justify-content:center; margin-bottom:40px; }
+.logo { display:flex; align-items:center; gap:18px; }
+.ring { width:78px; height:78px; display:block; }
+.title { font-size:64px; font-weight:300; margin:0; letter-spacing:.5px; line-height:1; }
+.title sup { font-size:26px; font-weight:300; color:var(--muted); margin-left:4px; vertical-align:34px; }
+
+.cmd { display:flex; align-items:center; gap:14px; background:var(--panel);
+  border:1.5px solid #d9d5fb; border-radius:22px; padding:10px 10px 10px 22px; box-shadow:var(--shadow);
+  transition:border-color .15s, box-shadow .15s; }
+.cmd:focus-within { border-color:var(--accent); box-shadow:0 10px 36px rgba(139,92,246,.18); }
+.cmd .lens { color:var(--muted); flex:0 0 auto; }
+.cmd input { flex:1; background:none; border:0; outline:none; color:var(--text); font:inherit; font-size:17px; padding:10px 0; }
+.cmd input::placeholder { color:var(--muted); }
+.send { width:46px; height:46px; flex:0 0 auto; border:0; border-radius:50%; cursor:pointer; font-size:20px;
+  background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;
+  box-shadow:0 4px 14px rgba(124,58,237,.35); }
+.send:hover { filter:brightness(1.07); }
+
+.modes { display:flex; gap:12px; justify-content:center; margin:22px 0 8px; }
+.mode { display:flex; align-items:center; gap:8px; padding:10px 22px; cursor:pointer;
+  border:0; border-radius:16px; background:var(--soft); color:#5b5b68; font:inherit; font-size:15px; }
+.mode:hover { color:var(--text); }
+.mode.active { background:linear-gradient(135deg,#6f86f6,var(--accent)); color:#fff;
+  box-shadow:0 6px 18px rgba(124,58,237,.30); }
+
+.hint { text-align:center; color:var(--muted); font-size:13px; margin:12px 0 30px; min-height:18px; }
+.hint b { color:var(--accent); font-weight:600; }
+
+.catlabel { color:var(--muted); font-size:14px; text-align:center; margin-bottom:14px; }
+.cats { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-bottom:28px; }
+.cat { padding:8px 18px; border-radius:16px; border:0; background:var(--soft); color:#4a4a57;
+  font:inherit; font-size:14px; cursor:pointer; }
+.cat:hover { color:var(--text); }
+.cat.active { background:var(--accent); color:#fff; }
+
+.cards { display:flex; flex-direction:column; gap:12px; }
+.card { display:flex; align-items:center; justify-content:space-between; gap:16px;
+  padding:18px 22px; border:1px solid var(--edge); border-radius:14px; background:var(--panel);
+  cursor:pointer; box-shadow:0 1px 3px rgba(20,20,40,.04); font-size:15px; color:#34343f;
+  transition:transform .12s, box-shadow .12s, border-color .12s; }
+.card:hover { border-color:#d9d5fb; box-shadow:var(--shadow); transform:translateY(-1px); }
+.card .arrow { color:var(--muted); }
+.card:hover .arrow { color:var(--accent); }
+@media (prefers-color-scheme: dark) {
+  .mode, .cat { color:#b7b7c4; } .card { color:var(--text); } .cmd { border-color:#3a3550; }
+}
+
+/* Only used when a task cannot start; progress lives in the side panel. */
+#log { margin-top:22px; display:none; }
+#log.on { display:block; }
+.row { padding:8px 12px; font-size:13px; display:flex; gap:9px; border-radius:10px; background:rgba(239,68,68,.07); }
+.tag { flex:0 0 auto; font-size:11px; font-weight:600; padding:2px 7px; border-radius:5px;
+  background:rgba(139,92,246,.16); color:var(--accent); height:fit-content; }
+.tag.err { background:rgba(239,68,68,.16); color:var(--err); }
+
+.status { position:fixed; right:16px; bottom:14px; font-size:12px; color:var(--muted); }
+.dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--err); margin-right:6px; }
+.dot.up { background:var(--ok); }

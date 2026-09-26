@@ -1,0 +1,14 @@
+diff --git a/ui/gl/init/gl_factory_mac.cc b/ui/gl/init/gl_factory_mac.cc
+index 3cfe3a42be..b4e3c245b0 100644
+--- a/ui/gl/init/gl_factory_mac.cc
++++ b/ui/gl/init/gl_factory_mac.cc
+@@ -26,6 +26,9 @@ namespace init {
+ std::vector<GLImplementationParts> GetAllowedGLImplementations() {
+   std::vector<GLImplementationParts> impls;
+   impls.emplace_back(gl::ANGLEImplementation::kMetal);
++  // Grol: allow ANGLE's desktop-GL backend, so builds without the Metal
++  // backend (angle_enable_metal=false, no full Xcode) still get a hardware GPU.
++  impls.emplace_back(gl::ANGLEImplementation::kOpenGL);
+   impls.emplace_back(gl::ANGLEImplementation::kSwiftShader);
+   return impls;
+ }

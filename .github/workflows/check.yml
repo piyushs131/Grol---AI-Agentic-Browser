@@ -1,0 +1,21 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ai-agent-os/package-lock.json
+      - run: npm ci --no-audit --no-fund --prefix ai-agent-os
+      - run: npm run check
+      - name: Shell syntax
+        run: for f in browser/scripts/*.sh browser/companion/*.sh; do bash -n "$f"; done

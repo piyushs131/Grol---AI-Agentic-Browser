@@ -1,0 +1,17 @@
+diff --git a/chrome/browser/ui/views/tabs/common/tab_group_header_view.cc b/chrome/browser/ui/views/tabs/common/tab_group_header_view.cc
+index c7c218422c..fe3b9f6928 100644
+--- a/chrome/browser/ui/views/tabs/common/tab_group_header_view.cc
++++ b/chrome/browser/ui/views/tabs/common/tab_group_header_view.cc
+@@ -524,7 +524,11 @@ void TabGroupHeaderView::OnDataChanged(
+   tab_group_visual_data_ = tab_group_data.visual_data;
+   is_shared_ = tab_group_data.is_sharing_group;
+ 
+-  group_header_label_->SetText(tab_group_visual_data_.title());
++  // Grol: an unnamed group used to render as a bare coloured bar with no
++  // text at all. Give it a label; renaming the group replaces it.
++  group_header_label_->SetText(tab_group_visual_data_.title().empty()
++                                   ? std::u16string(u"Untitled group")
++                                   : tab_group_visual_data_.title());
+   if (GetColorProvider()) {
+     SkColor background_color = GetColorProvider()->GetColor(
+         GetTabGroupTabStripColorId(tab_group_visual_data_.color(),

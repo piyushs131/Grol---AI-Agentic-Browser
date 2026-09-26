@@ -1,0 +1,18 @@
+diff --git a/chrome/browser/ui/startup/infobar_utils.cc b/chrome/browser/ui/startup/infobar_utils.cc
+index 598e361a29..c3f4d342b2 100644
+--- a/chrome/browser/ui/startup/infobar_utils.cc
++++ b/chrome/browser/ui/startup/infobar_utils.cc
+@@ -253,7 +253,12 @@ void AddInfoBarsIfNecessary(BrowserWindowInterface* browser,
+   infobars::ContentInfoBarManager* infobar_manager =
+       infobars::ContentInfoBarManager::FromWebContents(web_contents);
+ 
+-  if (!google_apis::HasAPIKeyConfigured()) {
++  // Grol: no "Google API keys are missing" bar by default. Grol's agent uses
++  // the user's own Gemini key, and the bar only confused people; pass
++  // --grol-show-api-keys-infobar to see it again.
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++          "grol-show-api-keys-infobar") &&
++      !google_apis::HasAPIKeyConfigured()) {
+     if (infobars::IsInfoBarMigrated(
+             infobars::InfoBarDelegate::GOOGLE_API_KEYS_INFOBAR_DELEGATE)) {
+       if (auto* manager =

@@ -1,0 +1,251 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Grol Agent</title>
+<link rel="icon" href="icons/grol-32.png">
+<style>
+:root {
+  --bg:#fbfaf7; --surface:#ffffff; --sunken:#f3f2ee; --edge:#e7e5df; --edge-strong:#d6d3cb;
+  --text:#1a1a1f; --muted:#6b6a72; --faint:#9a99a1;
+  --accent:#7c5cff; --accent-soft:rgba(124,92,255,.10); --on-accent:#fff;
+  --ok:#16a34a; --ok-soft:rgba(22,163,74,.10);
+  --warn:#d97706; --warn-soft:rgba(217,119,6,.10);
+  --err:#dc2626; --err-soft:rgba(220,38,38,.08);
+  --shadow:0 1px 2px rgba(20,20,30,.05), 0 4px 16px rgba(20,20,30,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#131317; --surface:#1b1b21; --sunken:#17171c; --edge:#2a2a33; --edge-strong:#3a3a45;
+    --text:#ececf1; --muted:#9a9aa6; --faint:#6c6c78;
+    --accent:#8b6dff; --accent-soft:rgba(139,109,255,.14);
+    --ok:#22c55e; --ok-soft:rgba(34,197,94,.12);
+    --warn:#f59e0b; --warn-soft:rgba(245,158,11,.12);
+    --err:#f87171; --err-soft:rgba(248,113,113,.10);
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+  }
+}
+* { box-sizing:border-box; }
+html, body { height:100%; }
+body { margin:0; background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+  font:13px/1.5 "Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased; }
+button { font:inherit; color:inherit; }
+svg { display:block; }
+
+.head { display:flex; align-items:center; gap:8px; padding:12px 14px; }
+.seg { flex:1; display:flex; padding:3px; background:var(--sunken); border:1px solid var(--edge);
+  border-radius:10px; }
+.seg button { flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+  padding:6px 8px; border:0; border-radius:7px; background:none; cursor:pointer;
+  color:var(--muted); font-weight:500; font-size:12.5px; transition:background .15s, color .15s; }
+.seg button:hover { color:var(--text); }
+.seg button.active { background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
+.icon-btn { width:32px; height:32px; flex:0 0 32px; display:grid; place-items:center;
+  border:1px solid var(--edge); border-radius:9px; background:var(--surface);
+  color:var(--muted); cursor:pointer; }
+.icon-btn:hover { color:var(--text); border-color:var(--edge-strong); }
+.icon-btn:disabled { opacity:.4; cursor:default; }
+.icon-btn.warn { color:#d97706; border-color:#f59e0b; }   /* no API key yet */
+
+.main { flex:1; overflow-y:auto; padding:4px 14px 16px; }
+
+.empty { display:flex; flex-direction:column; align-items:center; text-align:center;
+  padding:40px 8px 8px; }
+.empty .mark { width:44px; height:44px; margin-bottom:14px; background:url(logo.svg) center/contain no-repeat; }
+.empty h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+.empty p { margin:0 0 18px; color:var(--muted); font-size:12.5px; max-width:260px; }
+.chips { display:flex; flex-direction:column; gap:6px; width:100%; }
+.chip { text-align:left; padding:9px 12px; border:1px solid var(--edge); border-radius:10px;
+  background:var(--surface); cursor:pointer; font-size:12.5px; color:var(--text); }
+.chip:hover { border-color:var(--accent); background:var(--accent-soft); }
+
+.helper { display:flex; align-items:center; gap:7px; margin-top:16px; font-size:11.5px; color:var(--muted); }
+.helper code { font:11px ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--sunken);
+  padding:1px 5px; border-radius:4px; }
+
+.task { padding:12px 13px; background:var(--surface); border:1px solid var(--edge);
+  border-radius:12px; box-shadow:var(--shadow); }
+.task .goal { font-size:13.5px; font-weight:500; margin:0 0 8px; word-break:break-word; }
+.pill { display:inline-flex; align-items:center; gap:6px; padding:3px 9px 3px 8px;
+  border-radius:999px; font-size:11.5px; font-weight:500; background:var(--sunken); color:var(--muted); }
+.pill .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.pill.run  { background:var(--accent-soft); color:var(--accent); }
+.pill.run .dot { animation:pulse 1.2s ease-in-out infinite; }
+.pill.wait { background:var(--warn-soft); color:var(--warn); }
+.pill.ok   { background:var(--ok-soft); color:var(--ok); }
+.pill.err  { background:var(--err-soft); color:var(--err); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+.sect { margin-top:18px; }
+.sect-h { display:flex; align-items:baseline; justify-content:space-between; margin:0 2px 8px; }
+.sect-h h3 { margin:0; font-size:11px; font-weight:600; letter-spacing:.4px; text-transform:uppercase; color:var(--faint); }
+.sect-h span { font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; }
+
+.steps { list-style:none; margin:0; padding:0; }
+.step { position:relative; display:flex; gap:10px; padding:0 0 12px; }
+.step:last-child { padding-bottom:0; }
+.step::before { content:""; position:absolute; left:10px; top:22px; bottom:0; width:1px; background:var(--edge); }
+.step:last-child::before { display:none; }
+.step .mk { flex:0 0 21px; height:21px; border-radius:50%; display:grid; place-items:center;
+  font-size:10.5px; font-weight:600; font-variant-numeric:tabular-nums;
+  border:1px solid var(--edge-strong); background:var(--surface); color:var(--muted); position:relative; }
+.step .tx { padding-top:1px; color:var(--muted); font-size:12.5px; }
+.step.done .mk { background:var(--ok); border-color:var(--ok); color:#fff; }
+.step.done::before { background:var(--ok); opacity:.45; }
+.step.done .tx { color:var(--faint); }
+.step.now .mk { border-color:var(--accent); color:var(--accent); background:var(--accent-soft);
+  box-shadow:0 0 0 3px var(--accent-soft); }
+.step.now .tx { color:var(--text); font-weight:500; }
+
+.log { background:var(--surface); border:1px solid var(--edge); border-radius:12px; overflow:hidden; }
+.act { display:flex; align-items:center; gap:10px; padding:9px 12px; border-top:1px solid var(--edge); }
+.act:first-child { border-top:0; }
+.act .verb { flex:0 0 auto; min-width:52px; text-align:center; font-size:10.5px; font-weight:600;
+  letter-spacing:.2px; color:var(--accent); background:var(--accent-soft); border-radius:999px;
+  padding:2px 8px; white-space:nowrap; }
+.act .verb.muted { color:var(--faint); background:var(--sunken); }
+.act .verb.ok { color:var(--ok); background:var(--ok-soft); }
+.act .verb.err { color:var(--err); background:var(--err-soft, rgba(220,38,38,.10)); }
+.act .what { flex:1; min-width:0; font-size:12.5px; line-height:1.4; word-break:break-word;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.act.quiet .what { color:var(--muted); font-style:italic; }
+
+.result { display:flex; gap:9px; margin-top:10px; padding:10px 12px; border-radius:12px;
+  font-size:12.5px; border:1px solid var(--edge); background:var(--sunken); }
+.result .ic { flex:0 0 auto; padding-top:1px; }
+.result b { display:block; font-weight:600; margin-bottom:1px; }
+.result.ok  { background:var(--ok-soft);  border-color:transparent; }
+.result.ok .ic, .result.ok b { color:var(--ok); }
+.result.err { background:var(--err-soft); border-color:transparent; }
+.result.err .ic, .result.err b { color:var(--err); }
+.result .msg { color:var(--muted); word-break:break-word; }
+.result.warn { background:var(--warn-soft); border-color:transparent; }
+.result.warn .ic, .result.warn b { color:var(--warn); }
+
+.confirm { margin-top:10px; padding:11px 12px; border:1px solid var(--warn); border-radius:12px;
+  background:var(--warn-soft); font-size:12.5px; word-break:break-word; }
+.confirm .risk { color:var(--muted); }
+.confirm .btns { display:flex; gap:8px; margin-top:9px; }
+.confirm button { flex:1; padding:7px; border:1px solid transparent; border-radius:8px; cursor:pointer; font-weight:600; }
+.approve { background:var(--text); color:var(--bg); }
+.deny { background:var(--surface); border-color:var(--edge) !important; }
+
+.dock { padding:10px 14px 14px; border-top:1px solid var(--edge); background:var(--bg); }
+.controls { display:none; gap:8px; margin-bottom:10px; }
+.controls.show { display:flex; }
+.ctl { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; padding:7px 10px;
+  border:1px solid var(--edge); border-radius:9px; background:var(--surface); cursor:pointer;
+  font-weight:500; font-size:12.5px; }
+.ctl:hover { border-color:var(--edge-strong); }
+.ctl.stop { color:var(--err); }
+.ctl.stop:hover { background:var(--err-soft); border-color:transparent; }
+
+.composer { display:flex; align-items:flex-end; gap:6px; padding:6px 6px 6px 12px;
+  background:var(--surface); border:1px solid var(--edge); border-radius:14px; box-shadow:var(--shadow);
+  transition:border-color .15s, box-shadow .15s; }
+.composer:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+#goal { flex:1; border:0; outline:none; resize:none; background:none; color:var(--text);
+  font:inherit; font-size:13px; line-height:1.45; padding:6px 0; min-height:30px; max-height:140px; }
+#goal::placeholder { color:var(--faint); }
+.send { width:32px; height:32px; flex:0 0 32px; display:grid; place-items:center; border:0;
+  border-radius:10px; background:var(--accent); color:var(--on-accent); cursor:pointer; }
+.send:disabled { background:var(--sunken); color:var(--faint); cursor:default; }
+.hint { margin:7px 2px 0; font-size:10.5px; color:var(--faint); }
+.hint kbd { font:inherit; padding:0 4px; border:1px solid var(--edge); border-radius:4px; }
+[hidden] { display:none !important; }
+.keycard { margin-top:18px; width:100%; text-align:left; padding:14px; border:1px solid var(--edge);
+  border-radius:12px; background:var(--sunken); display:flex; flex-direction:column; gap:8px; }
+.keycard p { margin:0; color:var(--muted); font-size:12px; }
+.keycard input { font:inherit; padding:8px 10px; border:1px solid var(--edge); border-radius:8px;
+  background:var(--bg, #fff); color:inherit; outline:none; }
+.keycard input:focus { border-color:#8b5cf6; }
+.keyrow { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.keyrow button { padding:7px 14px; border:0; border-radius:8px; cursor:pointer; font-weight:600;
+  background:#7c3aed; color:#fff; }
+.keyrow a { font-size:12px; color:#7c3aed; text-decoration:none; }
+.keymsg { font-size:12px; min-height:16px; }
+.keymsg.ok { color:#16a34a; } .keymsg.err { color:#dc2626; }
+</style>
+</head>
+<body>
+  <header class="head">
+    <div class="seg" role="tablist">
+      <button class="tab active" data-tab="browser" role="tab">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+        Browser
+      </button>
+      <button class="tab" data-tab="os" role="tab">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>
+        OS Control
+      </button>
+    </div>
+    <button class="icon-btn" id="keybtn" title="Gemini API key">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.2-8.2M16 7l3 3M14 9l2 2"/></svg>
+    </button>
+    <button class="icon-btn" id="newagent" title="New task" disabled>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+  </header>
+
+  <main class="main" id="main">
+    <section class="empty" id="empty">
+      <div class="mark"></div>
+      <h1 id="emptyTitle">What should I do?</h1>
+      <p id="emptySub">Describe a task and I'll drive the browser: clicking, typing and checking as I go.</p>
+      <div class="chips" id="chips"></div>
+      <div class="helper" id="oshint" hidden></div>
+      <form class="keycard" id="keycard" hidden autocomplete="off">
+        <b>Connect Grol to Gemini</b>
+        <p>Grol's agent thinks with Google Gemini, using your own API key. It is stored only in this browser.</p>
+        <input id="keyinput" type="password" placeholder="Paste your Gemini API key" spellcheck="false">
+        <div class="keyrow">
+          <button type="submit" class="approve">Save key</button>
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key →</a>
+        </div>
+        <div class="keymsg" id="keymsg"></div>
+      </form>
+    </section>
+
+    <section id="run" hidden>
+      <div class="task">
+        <p class="goal" id="goalText"></p>
+        <span class="pill" id="pill"><span class="dot"></span><span id="state">Ready</span></span>
+      </div>
+
+      <div class="sect" id="planSect" hidden>
+        <div class="sect-h"><h3>Plan</h3><span id="planCount"></span></div>
+        <ol class="steps" id="plan"></ol>
+      </div>
+
+      <div class="sect" id="logSect" hidden>
+        <div class="sect-h"><h3>Activity</h3><span id="logCount"></span></div>
+        <div class="log" id="log"></div>
+      </div>
+      <div id="tail"></div>
+    </section>
+  </main>
+
+  <footer class="dock">
+    <div class="controls" id="controls">
+      <button class="ctl" id="pause">
+        <svg id="pauseIc" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+        <span id="pauseLbl">Pause</span>
+      </button>
+      <button class="ctl stop" id="stop">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+        Stop
+      </button>
+    </div>
+    <div class="composer">
+      <textarea id="goal" rows="1" placeholder="Tell me what you want to do…"></textarea>
+      <button class="send" id="runBtn" title="Run (Enter)" disabled>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+    </div>
+    <p class="hint"><kbd>Enter</kbd> to run · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</p>
+  </footer>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
