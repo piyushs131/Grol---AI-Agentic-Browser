@@ -68,36 +68,39 @@ if granted accessibility && granted screenRecording; then
   exit 0
 fi
 
+# Asking macOS for the permissions adds "node" to both lists, so the user only
+# has to flip the switches on the pages we open.
 desktop requestPermissions >/dev/null
 printf '%s' "$NODE" | pbcopy
-open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+pane() { open "x-apple.systempreferences:com.apple.preference.security?Privacy_$1"; }
 
 cat <<EOF
 
 ────────────────────────────────────────────────────────────
- One last step: let OS Control use your Mac
+ Last step: allow OS Control
 ────────────────────────────────────────────────────────────
- System Settings is open. Under Privacy & Security, turn ON "node"
- in BOTH "Accessibility" and "Screen Recording".
-
- If "node" isn't listed: click +, press Command-Shift-G, paste
- (the path is on your clipboard), press Return, click Open.
-   $NODE
-
- Waiting for you to turn them on…
+ System Settings will open. Just turn ON the switch next to
+ "node" — first under Accessibility, then under Screen Recording.
+ Nothing else to type or run; this window finishes by itself.
 ────────────────────────────────────────────────────────────
 EOF
 
 # Permissions are checked in fresh processes, so they show up here as soon as
 # the user switches them on. Restart once at the end so the helper starts clean.
 ax=0; sr=0
-for _ in $(seq 1 300); do
+granted accessibility && { ax=1; say "  ✓ Accessibility already on"; }
+if [ $ax = 1 ]; then pane ScreenCapture; else pane Accessibility; fi
+for i in $(seq 1 300); do
   if [ $ax = 0 ] && granted accessibility; then
     ax=1; say "  ✓ Accessibility on"
-    [ $sr = 0 ] && open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+    [ $sr = 0 ] && pane ScreenCapture
   fi
   if [ $sr = 0 ] && granted screenRecording; then sr=1; say "  ✓ Screen Recording on"; fi
   [ $ax = 1 ] && [ $sr = 1 ] && break
+  if [ "$i" = 30 ]; then
+    say "  Don't see \"node\" in the list? Click +, press Command-Shift-G, press"
+    say "  Command-V (the path is already copied), press Return, then click Open."
+  fi
   sleep 2
 done
 
