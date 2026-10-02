@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Installs the latest Grol release into /Applications.
+# Installs the latest Grol release into /Applications, with OS Control.
 #
 #   curl -fsSL https://raw.githubusercontent.com/piyushs131/Grol---AI-Agentic-Browser/main/install.sh | bash
 #
 # Options (after `bash -s --` when piped):
-#   --os-control     also install the OS Control helper
+#   --no-os-control  install only the browser, without the OS Control helper
 #   --version vX.Y.Z install a specific release instead of the latest
 #   --no-launch      don't open Grol when done
 # GROL_ZIP=<path or URL> installs from a specific zip and GROL_INSTALL_DIR=<dir>
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REPO="piyushs131/Grol---AI-Agentic-Browser"
-OS_CONTROL=0
+OS_CONTROL=1
 VERSION=""
 LAUNCH=1
 
@@ -22,6 +22,7 @@ die() { say "! $*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --os-control) OS_CONTROL=1 ;;
+    --no-os-control) OS_CONTROL=0 ;;
     --version) VERSION="${2:?--version needs a tag}"; shift ;;
     --no-launch) LAUNCH=0 ;;
     *) die "unknown option: $1" ;;
@@ -84,10 +85,6 @@ fi
 
 cat <<EOF
 
-Next: click the ring icon in Grol's toolbar and paste your Gemini API key
-(free at https://aistudio.google.com/apikey).
-EOF
-[ "$OS_CONTROL" = 1 ] || cat <<EOF
-To let Grol use apps on your Mac too, run:
-  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash -s -- --os-control --no-launch
+Next: in Grol press Command-Shift-Y, click the key icon and paste your API key
+(a free Gemini key: https://aistudio.google.com/apikey).
 EOF

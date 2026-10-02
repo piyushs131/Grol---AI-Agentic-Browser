@@ -70,9 +70,11 @@ Paste this into Terminal:
 curl -fsSL https://raw.githubusercontent.com/piyushs131/Grol---AI-Agentic-Browser/main/install.sh | bash
 ```
 
-It downloads the latest release into `/Applications` and opens it. Run it again
-to update; your profile and settings are kept. Downloading this way avoids the
-"Apple could not verify Grol" dialog that the test builds otherwise show.
+It installs Grol into `/Applications` together with the OS Control helper (a
+login item on `127.0.0.1:7777`), then opens Grol. Run it again to update; your
+profile and settings are kept. Downloading this way avoids the "Apple could not
+verify Grol" dialog that the test builds otherwise show. To install only the
+browser, end the command with `bash -s -- --no-os-control`.
 
 <details>
 <summary>Prefer the disk image?</summary>
@@ -81,27 +83,26 @@ Download `Grol-<version>-arm64.dmg` from
 [Releases](https://github.com/piyushs131/Grol---AI-Agentic-Browser/releases),
 drag Grol into Applications and open it. When macOS says it can't verify Grol,
 click **Done**, then **System Settings → Privacy & Security → Open Anyway**. You
-only do this once.
+only do this once. Open `Install OS Control.command` from the disk image the
+same way to add OS Control.
 </details>
 
-### 2. Add your API key
+### 2. Allow OS Control
 
-Click the ring icon in the toolbar to open the side panel, then paste your Gemini
-API key in Settings. It's stored only in your browser profile.
-
-### 3. (Optional) Turn on OS Control
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/piyushs131/Grol---AI-Agentic-Browser/main/install.sh | bash -s -- --os-control --no-launch
-```
-
-This installs the helper as a login item on `127.0.0.1:7777`. Then open
-**System Settings → Privacy & Security** and turn on both **Accessibility** and
-**Screen Recording** for the path the installer prints. Restart the helper:
+System Settings opens during the install. In **Privacy & Security**, turn on
+**node** (the helper, at the path the installer prints) under both
+**Accessibility** and **Screen Recording**. Then restart the helper:
 
 ```sh
 launchctl kickstart -k gui/$(id -u)/com.grol.os-companion
 ```
+
+### 3. Add your API key
+
+Press **⌘ Shift Y** to open the side panel, click the **key icon**, choose a
+provider and paste your key. A Gemini key is free from
+[Google AI Studio](https://aistudio.google.com/apikey). It's stored only in your
+browser profile.
 
 From a clone of this repo you can use `browser/companion/install-autostart.sh`
 instead, and `browser/companion/install-autostart.sh --remove` to uninstall.
