@@ -1,5 +1,3 @@
-// Syntax-checks every JS file in the repo, then boots the daemon on a spare port
-// and exercises its HTTP contract and safety rules.
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');

@@ -6,8 +6,6 @@ const { CapabilityModule } = require('../../shared/schemas/capability-schema');
 const macInput = require('../desktop/mac-input');
 const windowsApps = require('./windows-apps');
 
-// Best-effort tripwire for obvious disasters. The real control is that every
-// shell command needs the user's confirmation (see executor SENSITIVE_ACTIONS).
 const BLOCKED_COMMANDS = [
   /\brm\s+(?:-\S+\s+)*(?:--no-preserve-root\s+)?(?:\/|~\/?|\$HOME\/?)(?:\*|\s|$)/i,
   /\bformat\s+[a-z]:/i,
@@ -33,8 +31,6 @@ const MIN_TIMEOUT = 100;
 const MAX_TIMEOUT = 10 * 60 * 1000;
 const DEFAULT_TIMEOUT = 30000;
 
-// Arguments go straight to the program, never through a shell. Resolves even on
-// failure: callers decide whether a non-zero exit matters.
 function run(file, args, opts = {}) {
   return new Promise((resolve) => {
     cp.execFile(file, args, { maxBuffer: 16 << 20, windowsHide: true, ...opts },
@@ -78,6 +74,27 @@ function toCwd(cwd) {
   return dir;
 }
 
+const OPEN_ALIASES = { desktop: 'Desktop', documents: 'Documents', downloads: 'Downloads', pictures: 'Pictures',
+  music: 'Music', movies: 'Movies', videos: 'Videos' };
+
+function toOpenPath(p) {
+  if (p === undefined || p === null || p === '') return null;
+  if (typeof p !== 'string' || /[\0\r\n]/.test(p)) throw new Error('path must be a single-line string');
+  const home = os.homedir();
+  const s = p.trim();
+  if (/^(https?|mailto):/i.test(s)) {
+    try { return new URL(s).href; } catch (_) { throw new Error(`not a valid URL: ${s.slice(0, 120)}`); }
+  }
+  const m = /^([^/\\]+)(?:[/\\](.*))?$/s.exec(s);
+  const alias = m && Object.prototype.hasOwnProperty.call(OPEN_ALIASES, m[1].toLowerCase()) ? OPEN_ALIASES[m[1].toLowerCase()] : null;
+  const full = s === '~' ? home
+    : /^~[/\\]/.test(s) ? path.join(home, s.slice(2))
+      : alias ? path.join(home, alias, m[2] || '')
+        : path.resolve(home, s);
+  if (!fs.existsSync(full)) throw new Error(`path does not exist: ${full}`);
+  return full;
+}
+
 function toPid(pid) {
   const s = String(pid ?? '').trim();
   if (!/^\d+$/.test(s)) throw new Error('PID must be a positive integer');
@@ -94,7 +111,6 @@ function assertAllowedCommand(command) {
   if (BLOCKED_COMMANDS.some((re) => re.test(command))) throw new Error('Command blocked: matches a dangerous pattern');
 }
 
-// Kept output is capped; the child keeps running and is not killed for being chatty.
 function capture(limit) {
   const chunks = [];
   let size = 0;
@@ -112,15 +128,55 @@ function capture(limit) {
   };
 }
 
-// The shell runs in its own process group so a timeout kills the whole
-// pipeline; otherwise a grandchild holding stdout open keeps the call hanging.
+const MAC_APP_CLIS = [
+  '/Applications/Visual Studio Code.app/Contents/Resources/app/bin',
+  '/Applications/Cursor.app/Contents/Resources/app/bin'
+];
+let shellPathCache = null;
+
+function loginShellPath() {
+  const shell = process.env.SHELL || '/bin/zsh';
+  try {
+    const out = cp.execFileSync(shell, ['-l', '-c', 'printf "__P__%s__P__" "$PATH"'],
+      { timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const m = /__P__(.*?)__P__/s.exec(out);
+    return m ? m[1].split(':') : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function etcPaths() {
+  const files = ['/etc/paths'];
+  try { for (const f of fs.readdirSync('/etc/paths.d')) files.push(path.join('/etc/paths.d', f)); } catch (_) {}
+  return files.flatMap((f) => { try { return fs.readFileSync(f, 'utf8').split('\n'); } catch (_) { return []; } });
+}
+
+function shellPath(platform = process.platform) {
+  if (platform === 'win32') return process.env.PATH || '';
+  if (shellPathCache === null) {
+    const home = os.homedir();
+    const dirs = [
+      ...loginShellPath(),
+      '/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/local/sbin',
+      path.join(home, '.local/bin'), path.join(home, '.volta/bin'), path.join(home, '.bun/bin'),
+      path.join(home, '.cargo/bin'), path.join(home, '.deno/bin'),
+      ...(platform === 'darwin' ? MAC_APP_CLIS : []),
+      ...(process.env.PATH || '').split(':'),
+      ...etcPaths()
+    ].map((d) => d.trim()).filter((d) => d && path.isAbsolute(d));
+    shellPathCache = [...new Set(dirs)].filter((d) => { try { return fs.statSync(d).isDirectory(); } catch (_) { return false; } }).join(':');
+  }
+  return shellPathCache;
+}
+
 function runShell(command, { cwd, timeout, platform = process.platform }) {
   return new Promise((resolve) => {
     const win = platform === 'win32';
     const child = win
       ? cp.spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${command}"`],
         { cwd, windowsHide: true, windowsVerbatimArguments: true })
-      : cp.spawn('/bin/sh', ['-c', command], { cwd, detached: true });
+      : cp.spawn('/bin/sh', ['-c', command], { cwd, detached: true, env: { ...process.env, PATH: shellPath(platform) } });
     const out = capture(MAX_CAPTURE);
     const err = capture(MAX_CAPTURE);
     let timedOut = false;
@@ -234,8 +290,8 @@ class ProcessModule extends CapabilityModule {
     this.platform = context.platform || process.platform;
 
     this.registerAction('openApplication', this.openApplication, {
-      description: 'Open an application by name',
-      parameters: ['name', 'args'],
+      description: 'Open an application by name, optionally opening a file or folder (path) in it',
+      parameters: ['name', 'path', 'args'],
       riskLevel: 'medium'
     });
 
@@ -289,12 +345,13 @@ class ProcessModule extends CapabilityModule {
     });
   }
 
-  async openApplication({ name, args, waitForWindow = false, timeoutMs = 7000 } = {}) {
+  async openApplication({ name, args, path: target, waitForWindow = false, timeoutMs = 7000 } = {}) {
     const app = appName(name);
     const argv = toArgs(args);
-    if (this.platform === 'darwin') return macInput.openApp(app, argv);
-    if (this.platform === 'win32') return this._openWindowsApp(app, argv, waitForWindow, timeoutMs);
-    if (this.platform === 'linux') return spawnDetached(app, argv, this.platform);
+    const file = toOpenPath(target);
+    if (this.platform === 'darwin') return macInput.openApp(app, argv, file);
+    if (this.platform === 'win32') return this._openWindowsApp(app, file ? [file, ...argv] : argv, waitForWindow, timeoutMs);
+    if (this.platform === 'linux') return spawnDetached(app, file ? [file, ...argv] : argv, this.platform);
     throw new Error(`Unsupported platform: ${this.platform}`);
   }
 
@@ -313,7 +370,6 @@ class ProcessModule extends CapabilityModule {
   async closeApplication({ name } = {}) {
     const app = appName(name);
     if (this.platform === 'darwin') return macInput.quit(app);
-    // Wildcards would turn "close *" into "kill everything".
     if (/[*?]/.test(app)) throw new Error('Application name must not contain wildcards');
     const attempts = this.platform === 'win32'
       ? [['taskkill', ['/IM', /\.exe$/i.test(app) ? app : `${app}.exe`, '/F']],
@@ -404,7 +460,6 @@ class ProcessModule extends CapabilityModule {
     };
   }
 
-  // Matches process names only: a PID that merely contains the digits is not "running".
   async isRunning({ name } = {}) {
     const app = appName(name);
     const processes = filterProcesses(await this._processes(), app, { byPid: false });
@@ -503,6 +558,6 @@ class ProcessModule extends CapabilityModule {
 
 module.exports = ProcessModule;
 module.exports.__test = {
-  BLOCKED_COMMANDS, assertAllowedCommand, toTimeout, toCwd, toPid, toArgs, appName,
+  BLOCKED_COMMANDS, assertAllowedCommand, toTimeout, toCwd, toPid, toArgs, appName, toOpenPath, shellPath,
   parsePs, parseTasklist, filterProcesses, windowMatches, escapeRegex, runShell, capture
 };

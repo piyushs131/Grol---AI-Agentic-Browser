@@ -51,7 +51,6 @@ function toRegion({ x, y, width, height } = {}) {
   return region;
 }
 
-// Width in screen points; undefined means "no resize".
 function toAnalyzeWidth(width) {
   if (width === undefined || width === null) return undefined;
   const n = Number(width);
@@ -233,8 +232,6 @@ foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
 
   async analyzeScreen({ region, width, quality } = {}) {
     const targetWidth = toAnalyzeWidth(width);
-    // The agent passes the screen width in POINTS, so image coordinates equal
-    // click coordinates and the payload is ~200KB instead of a multi-MB Retina PNG.
     if (!region && targetWidth && this.platform === 'darwin') {
       const tempPath = path.join(this.screenshotDir, uniqueName('analyze', 'jpg'));
       try {

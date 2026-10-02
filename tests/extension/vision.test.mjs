@@ -1,7 +1,3 @@
-// Unit and loop tests for the browser agent: pure helpers, loop guards, task
-// runs, the action executor and the whole VisionAgent loop driven through a
-// fake page target and a fake planner; CdpPageTarget over a stubbed
-// chrome.debugger.
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { installChromeStub } from '../helpers/chrome-stub.mjs';
@@ -44,7 +40,6 @@ async function until(pred, { timeout = 4000, step = 5 } = {}) {
   }
 }
 
-// ---------------------------------------------------------------- helpers
 
 describe('vision-helpers', () => {
   test('parseKeyChord handles names, chords and aliases', () => {
@@ -100,6 +95,11 @@ describe('vision-helpers', () => {
     assert.equal(helpers.matchMarksByText(marks, 'Add to cart').length, 2);
     assert.deepEqual(helpers.matchMarksByText(marks, 'खरीदें').map((m) => m.mark), [4]);
     assert.deepEqual(helpers.matchMarksByText(marks, '!!!'), []);
+    assert.equal(helpers.lookAlikeOfGoal('Android', 'tick the Android 14 filter'), 'android 14');
+    assert.equal(helpers.lookAlikeOfGoal('Android 14', 'tick the Android 14 filter'), null);
+    assert.equal(helpers.lookAlikeOfGoal('Samsung', 'tick the Samsung brand'), null);
+    assert.equal(helpers.lookAlikeOfGoal('iPhone', 'buy an iPhone 15 Pro'), 'iphone 15 pro');
+    assert.equal(helpers.lookAlikeOfGoal('Android', 'android phones, android 14 too'), null);
     assert.deepEqual(helpers.matchMarksByText(marks, ''), []);
     assert.deepEqual(helpers.matchMarksByText(null, 'x'), []);
   });
@@ -120,6 +120,8 @@ describe('vision-helpers', () => {
     assert.equal(helpers.describeAction({ action: 'click', mark: 2 }, { marks: [{ mark: 2, name: 'Go' }] }), 'Clicking "Go"');
     assert.equal(helpers.actionKey('u', { action: 'type', text: 42 }), 'u#type#42');
     assert.equal(helpers.actionKey('u', { action: 'key', key: 'Tab' }), 'u#key#Tab');
+    assert.notEqual(helpers.actionKey('u', { action: 'scroll', direction: 'down' }, 0),
+      helpers.actionKey('u', { action: 'scroll', direction: 'down' }, 600));
     assert.notEqual(helpers.actionKey('u', { action: 'key', key: 'Tab' }), helpers.actionKey('u', { action: 'key', key: 'Escape' }));
     assert.match(helpers.describeView('u', 't', { marks: [] }), /0 interactive/);
   });
@@ -150,7 +152,6 @@ describe('mark-render geometry', () => {
   });
 });
 
-// ------------------------------------------------------------ loop guards
 
 describe('ProgressGuard', () => {
   test('flags repeats beyond the limit and exposes the stuck warning', () => {
@@ -233,10 +234,7 @@ describe('TaskRun', () => {
   });
 });
 
-// --------------------------------------------------------- fake page target
 
-// Implements the CdpPageTarget surface the agent uses. Each page "version"
-// yields a distinct signature; actions bump it when they change the page.
 class FakeTarget {
   constructor({ marks, url = 'https://site.test/' } = {}) {
     this.url = url;
@@ -318,8 +316,6 @@ class FakeTarget {
   async drag() { return { success: true }; }
 }
 
-// Plays back a script of decisions; an Error entry is thrown, a function is
-// called with the decide context.
 class FakePlanner {
   constructor(script, { verdicts = [], plan = ['Do it'] } = {}) {
     this.script = script;
@@ -413,7 +409,6 @@ describe('VisionAgent loop', () => {
     });
     await agent.startTask('click the middle');
     await finished(agent);
-    // The fake screenshot is 1600x1200 image px for an 800x600 CSS viewport.
     assert.deepEqual(target.calls.filter((c) => c[0] === 'click'), [['click', 200, 150]]);
   });
 
@@ -570,6 +565,115 @@ describe('VisionAgent loop', () => {
     assert.equal(completion(res.taskId).data.result, 'Lost control of the browser page repeatedly');
   });
 
+  test('a site error page is retried only after a growing pause', async () => {
+    const err = { page: 'Cart', state: 'error', blocker: 'Oops! something went wrong', progress: '', plan_step: 1 };
+    const { agent, target } = makeAgent({
+      script: [{ action: 'key', key: 'F5', observation: err }, { action: 'key', key: 'F6', observation: err }, { action: 'done' }],
+      limits: { siteErrorBackoffMs: [80, 160], maxConsecutiveNoChange: 99 }
+    });
+    const started = Date.now();
+    await agent.startTask('open the cart');
+    await finished(agent);
+    assert.deepEqual(target.calls.filter((c) => c[0] === 'key').map((c) => c[1]), ['F5', 'F6']);
+    assert.ok(Date.now() - started >= 240, 'waited 80ms then 160ms before the two retries');
+  });
+
+  test('a click on a shorter look-alike of the goal\'s label is refused once with the exact fix', async () => {
+    const marks = [{ mark: 1, name: 'Android', role: 'link', x: 100, y: 50, rect: { x: 60, y: 40, w: 80, h: 20 } }];
+    const { agent, target, planner } = makeAgent({
+      script: [{ action: 'click', mark: 1 }, { action: 'click', mark: 1 }, { action: 'done' }],
+      target: new FakeTarget({ marks })
+    });
+    await agent.startTask('on amazon tick the Android 14 filter');
+    await finished(agent);
+    assert.equal(target.calls.filter((c) => c[0] === 'click').length, 1, 'refused the first time, allowed when insisted');
+    assert.match(JSON.stringify(planner.contexts[1]), /NOT \\"android 14\\".*click_text/);
+  });
+
+  test('scrolling down a long page again and again is progress, not a loop', async () => {
+    const target = new FakeTarget();
+    let y = 0;
+    const orig = target.executeJS.bind(target);
+    target.executeJS = async (code) => {
+      if (code.includes('scrollable(')) y += 600;
+      const out = await orig(code);
+      return code.includes('__grolSoM.mark()') ? { ...out, scroll: { y, maxY: 9000 } } : out;
+    };
+    const { agent } = makeAgent({
+      script: [...Array(6).fill({ action: 'scroll', direction: 'down' }), { action: 'done' }],
+      target, limits: { maxConsecutiveNoChange: 99 }
+    });
+    await agent.startTask('read the whole page');
+    await finished(agent);
+    assert.equal(target.calls.filter((c) => c[0] === 'scroll').length, 6);
+    assert.equal(target.calls.filter((c) => c[0] === 'key').length, 0, 'never replaced by Escape');
+  });
+
+  test('click_text on a shorter look-alike is refused too', async () => {
+    const { agent, target, planner } = makeAgent({ script: [{ action: 'click_text', text: 'Android' }, { action: 'done' }] });
+    await agent.startTask('tick the Android 14 filter');
+    await finished(agent);
+    assert.equal(target.calls.filter((c) => c[0] === 'click').length, 0);
+    assert.match(JSON.stringify(planner.contexts[1]), /NOT \\"android 14\\"/);
+  });
+
+  test('scroll with a mark scrolls the panel under that element, not mid-screen', async () => {
+    const marks = [{ mark: 3, name: 'Brand', role: 'checkbox', x: 120, y: 500, rect: { x: 100, y: 490, w: 40, h: 20 } }];
+    const target = new FakeTarget({ marks });
+    const codes = [];
+    const orig = target.executeJS.bind(target);
+    target.executeJS = async (code) => { if (code.includes('scrollable(')) codes.push(code); return orig(code); };
+    const { agent } = makeAgent({ script: [{ action: 'scroll', direction: 'down', mark: 3 }, { action: 'done' }], target });
+    await agent.startTask('scroll the filters');
+    await finished(agent);
+    assert.match(codes[0], /var at = \{"x":120,"y":500\}/);
+  });
+
+  test('a type with no field named goes into the page\'s search box', async () => {
+    const marks = [
+      { mark: 1, name: 'Wikipedia', role: 'link', x: 50, y: 20, rect: { x: 20, y: 10, w: 60, h: 20 } },
+      { mark: 2, name: 'Search Wikipedia', role: 'input:search', typable: true, x: 300, y: 50, rect: { x: 200, y: 40, w: 200, h: 20 } }
+    ];
+    const { agent, target } = makeAgent({
+      script: [{ action: 'type', text: 'India', submit: true }, { action: 'done' }],
+      target: new FakeTarget({ marks })
+    });
+    await agent.startTask('search wikipedia for India');
+    await finished(agent);
+    assert.ok(target.calls.some((c) => c[0] === 'type' && c[1] === 'India'), JSON.stringify(target.calls));
+  });
+
+  test('a tab that stops answering is revived instead of retried forever', async () => {
+    const target = new FakeTarget({ url: 'https://en.wikipedia.org/wiki/India' });
+    target.fail.capture = 'executeJS timed out';
+    target.fail.executeJS = 'executeJS timed out';
+    const revived = [];
+    target.reviveTab = async (url) => { revived.push(url); delete target.fail.capture; delete target.fail.executeJS; return { success: true, via: 'reload' }; };
+    const { agent } = makeAgent({ script: [{ action: 'done' }], target, limits: { maxSteps: 12 } });
+    const res = await agent.startTask('read the india article');
+    await finished(agent);
+    assert.deepEqual(revived, ['https://en.wikipedia.org/wiki/India']);
+    assert.equal(completion(res.taskId).data.success, true);
+  });
+
+  test('the page closing right as the goal is reached: the check re-attaches instead of hanging', async () => {
+    const target = new FakeTarget();
+    let resolves = 0;
+    const origResolve = target.resolve.bind(target);
+    target.resolve = async (o) => { resolves++; target.alive = true; return origResolve(o); };
+    const { agent, planner } = makeAgent({ script: [() => { target.alive = false; return { action: 'done', summary: 'at checkout' }; }], target });
+    const res = await agent.startTask('go to the checkout page');
+    await finished(agent);
+    assert.ok(resolves >= 2, 're-attached for the completion check');
+    assert.equal(completion(res.taskId).data.success, true);
+  });
+
+  test('activity labels read as plain words, not milliseconds and pixels', () => {
+    assert.equal(helpers.describeAction({ action: 'wait', ms: 2000 }, { marks: [] }), 'Waiting 2 seconds for the page');
+    assert.equal(helpers.describeAction({ action: 'wait', ms: 1000 }, { marks: [] }), 'Waiting 1 second for the page');
+    assert.equal(helpers.describeAction({ action: 'scroll', direction: 'down', amount: 800 }, { marks: [] }), 'Scrolling down the page');
+  });
+
   test('actions that change nothing stop the task', async () => {
     const { agent, target } = makeAgent({
       script: [(ctx) => ({ action: 'key', key: ['Tab', 'ArrowDown', 'End'][ctx.history.length % 3] })],
@@ -642,11 +746,21 @@ describe('VisionAgent loop', () => {
     assert.deepEqual(completion(res.taskId).data, { success: true, verified: true, result: 'added 5 for real', taskId: res.taskId });
   });
 
-  test('done that cannot be verified completes as unverified; repeated rejection fails', async () => {
+  test('a completion check that fails at first is retried, and a later pass completes the task', async () => {
+    const a = makeAgent({ script: [{ action: 'done', summary: 's' }],
+      planner: { verdicts: [new Error('busy'), new Error('busy'), { complete: true, evidence: 'visible' }] } });
+    const r = await a.agent.startTask('x');
+    await finished(a.agent);
+    assert.equal(completion(r.taskId).data.success, true);
+    assert.equal(completion(r.taskId).data.verified, true);
+  });
+
+  test('done that cannot be verified is never reported as success; repeated rejection fails', async () => {
     const a = makeAgent({ script: [{ action: 'done', summary: 's' }], planner: { verdicts: [new Error('quota')] } });
     const r1 = await a.agent.startTask('x');
     await finished(a.agent);
-    assert.equal(completion(r1.taskId).data.verified, false);
+    assert.equal(completion(r1.taskId).data.success, false);
+    assert.match(completion(r1.taskId).data.result, /Couldn't confirm the task was finished/);
 
     const b = makeAgent({ script: [{ action: 'done', summary: 's' }], planner: { verdicts: [{ complete: false, missing: 'nope' }] } });
     const r2 = await b.agent.startTask('y');
@@ -691,7 +805,6 @@ describe('VisionAgent loop', () => {
   });
 });
 
-// --------------------------------------------------------- action executor
 
 describe('ActionExecutor', () => {
   const view = (target, extra = {}) => ({
@@ -822,7 +935,6 @@ describe('ActionExecutor', () => {
   });
 });
 
-// ----------------------------------------------- CdpPageTarget, stubbed CDP
 
 function pngBase64(width, height) {
   const b = new Uint8Array(33);
@@ -905,6 +1017,14 @@ describe('CdpPageTarget', () => {
     stubDebugger();
     const t = new CdpPageTarget({ logger: quietLogger, getTabId: async () => null });
     assert.equal(await t.resolve(), null);
+  });
+
+  test('attaching never enables the Runtime domain (anti-bot scripts detect it)', async () => {
+    const { sent } = stubDebugger();
+    const t = new CdpPageTarget({ logger: quietLogger, getTabId: async () => 1 });
+    await t.resolve();
+    assert.ok(sent.some((c) => c.method === 'Page.enable'));
+    assert.ok(!sent.some((c) => c.method === 'Runtime.enable'));
   });
 
   test('detach events mark the session dead and record a user cancel', async () => {

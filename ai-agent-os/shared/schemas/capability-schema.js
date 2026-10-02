@@ -1,5 +1,3 @@
-// Base class every capability module extends: it registers named action
-// handlers and describes them for GET /capabilities.
 
 class CapabilityModule {
   constructor(name, description = '') {

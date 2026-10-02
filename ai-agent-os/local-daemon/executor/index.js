@@ -1,5 +1,3 @@
-// Runs action requests: applies the confirmation policy, enforces a timeout,
-// and records every outcome in the memory store.
 
 const crypto = require('crypto');
 const { ActionResponse, DEFAULT_TIMEOUT_MS, errorMessage } = require('../../shared/schemas/action-schema');
@@ -29,8 +27,6 @@ class ActionExecutor {
     this.maxPending = positiveNumber(options.maxPending, DEFAULT_MAX_PENDING);
   }
 
-  // What the policy says about module.action, judged on both the requested
-  // name and the one that will actually run.
   assess(module, action) {
     const target = this.registry.resolve(module, action);
     const resolved = target ? `${target.module}.${target.action}` : null;
@@ -49,8 +45,6 @@ class ActionExecutor {
     return this._run(actionRequest, target, risk);
   }
 
-  // The pending entry is removed before anything is awaited, so a replayed or
-  // concurrent confirm of the same id can never run the action twice.
   async confirmAndExecute(confirmationId, { approved = true, reason } = {}) {
     const pending = this._takePending(confirmationId);
     if (!pending) return ActionResponse.error('unknown', 'Confirmation ID not found or expired');
@@ -59,7 +53,6 @@ class ActionExecutor {
     if (Date.now() > pending.expiresAt) return this._fail(actionRequest, risk, 'Confirmation request expired');
     if (approved !== true) return this._fail(actionRequest, risk, reason || 'Action denied by approver');
 
-    // Modules may have changed while the user was deciding; run only what was approved.
     const current = this.registry.resolve(actionRequest.module, actionRequest.action);
     if (!current || current.module !== target.module || current.action !== target.action) {
       return this._fail(actionRequest, risk, `${target.module}.${target.action} is no longer available`);
@@ -93,8 +86,6 @@ class ActionExecutor {
     }, module, action);
   }
 
-  // Drops expired requests, then the oldest ones, so a caller that never
-  // answers cannot grow the map without bound.
   _prunePending() {
     const now = Date.now();
     for (const [id, pending] of this.pendingConfirmations) {
@@ -122,7 +113,6 @@ class ActionExecutor {
     return this._record(actionRequest, risk, response);
   }
 
-  // The action itself cannot be cancelled; the caller just stops waiting.
   async _withTimeout(run, timeout = DEFAULT_TIMEOUT_MS, module, action) {
     let timer;
     const timedOut = new Promise((_, reject) => {
@@ -162,7 +152,6 @@ class ActionExecutor {
   }
 }
 
-// Keeps secrets and huge payloads (typed text, file contents) out of the log.
 function sanitize(value, depth = 0) {
   if (typeof value === 'string') {
     return value.length > MAX_LOGGED_STRING ? `${value.slice(0, MAX_LOGGED_STRING)}...[TRUNCATED]` : value;

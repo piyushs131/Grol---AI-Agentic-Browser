@@ -1,6 +1,3 @@
-// Grol home page. Search goes straight to the web; Action (browser agent) and
-// OS Control hand the task to the service worker and show progress in the
-// side panel. This page only reports a task that could not start.
 const $ = (id) => document.getElementById(id);
 const q = $('q'), log = $('log'), hint = $('hint');
 
@@ -22,7 +19,6 @@ const SUGGESTIONS = {
   Learning:      ['Find a beginner tutorial for Rust and summarise what it covers']
 };
 
-// Constant markup: the only innerHTML on this page.
 const MODE_HINT = Object.freeze({
   search: 'Goes straight to the web.',
   action: 'The agent drives the browser for you — clicking, typing, verifying.',
@@ -37,7 +33,6 @@ function line(tag, text, cls) {
   log.classList.add('on');
   const row = document.createElement('div');
   row.className = 'row';
-  // textContent: model output and on-screen text flow through here.
   const t = document.createElement('span');
   t.className = `tag ${cls || ''}`;
   t.textContent = tag;
@@ -94,18 +89,19 @@ async function osHealth() {
     const n = Array.isArray(d && d.modules) ? d.modules.length : 0;
     $('osdot').classList.add('up');
     $('osText').textContent = `OS Control: ready (${n} modules)`;
-  } catch (_) {
+  } catch (err) {
     $('osdot').classList.remove('up');
-    $('osText').textContent = 'OS Control: helper not running';
+    $('osText').textContent = err && err.name === 'TimeoutError'
+      ? 'OS Control: waiting - answer any macOS password prompt for Grol'
+      : 'OS Control: helper not running';
   }
 }
 
 async function openPanel() {
-  // sidePanel.open() needs a user gesture, so it must be called from this page.
   try {
     const win = await chrome.windows.getCurrent();
     await chrome.sidePanel.open({ windowId: win.id });
-  } catch (_) { /* never block the task on the panel */ }
+  } catch (_) {  }
 }
 
 async function run() {
@@ -121,15 +117,24 @@ async function run() {
     return;
   }
 
-  // A second Enter while the first start is in flight would start a second task.
   starting = true;
   $('go').disabled = true;
   try {
     await openPanel();
+    const settings = await chrome.runtime.sendMessage({ type: 'settings:get' }).catch(() => null);
+    if (mode === 'action' && settings && settings.ok && !settings.hasKey) {
+      chrome.runtime.sendMessage({ type: 'settings:needed', goal: text }).catch(() => {});
+      line('agent', 'Add your AI API key (Gemini, Claude, OpenAI, Grok, …) in the side panel on the right, then run the task again.', 'err');
+      return;
+    }
     const res = await chrome.runtime.sendMessage(mode === 'os'
       ? { type: 'os:run', text }
       : { type: 'agent:start', goal: text }).catch((e) => ({ ok: false, error: e.message }));
-    if (!res || !res.ok) { line(mode === 'os' ? 'os' : 'agent', (res && res.error) || 'could not start', 'err'); return; }
+    if (!res || !res.ok) {
+      if (res && res.needsKey) chrome.runtime.sendMessage({ type: 'settings:needed', goal: text }).catch(() => {});
+      line(mode === 'os' ? 'os' : 'agent', (res && res.error) || 'could not start', 'err');
+      return;
+    }
     if (q.value.trim() === text) q.value = '';
   } finally {
     starting = false;

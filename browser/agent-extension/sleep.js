@@ -1,6 +1,3 @@
-// A sleep that ends early when the task is stopped, so a long backoff never
-// keeps a stopped task alive. isAborted is polled because callers track stop
-// with a flag; signal is honoured as well.
 const POLL_MS = 100;
 
 export function sleep(ms, { signal, isAborted } = {}) {

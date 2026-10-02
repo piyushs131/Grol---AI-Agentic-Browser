@@ -1,0 +1,89 @@
+{
+ "fetchedAt": 1790437362257,
+ "version": "bundled-2026-09-26",
+ "converter": "900684e61b3ca95d951e7b3ed5e889aedb1afe889f9abec69d21acb3fbca5d58",
+ "sources": [
+  {
+   "id": "easylist",
+   "title": "EasyList",
+   "url": "https://easylist.to/easylist/easylist.txt",
+   "version": "202609261507",
+   "sha256": "e506844996c8634f760744b4bdab43c649ce60b5d05d058b2bd5d8f5a2ddd71f"
+  },
+  {
+   "id": "pgl",
+   "title": "Peter Lowe's Ad and tracking server list",
+   "url": "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=0&mimetype=plaintext",
+   "version": null,
+   "sha256": "d819ff15b5e1815fbaf9376edfcfd1b538c259d9fe22815df19a6856d4ea1391"
+  },
+  {
+   "id": "indian",
+   "title": "EasyList India",
+   "url": "https://easylist-downloads.adblockplus.org/indianlist.txt",
+   "version": "202609261523",
+   "sha256": "f934caef856611975e27215b50bc58069fd552484586ac2698168eeafb9dab41"
+  },
+  {
+   "id": "easyprivacy",
+   "title": "EasyPrivacy",
+   "url": "https://easylist.to/easylist/easyprivacy.txt",
+   "version": "202609261507",
+   "sha256": "11397028acaace882fd474cef4918b834fe0d065dc6f08a3abcff205a44cd064"
+  }
+ ],
+ "stats": {
+  "lists": {
+   "easylist": {
+    "network": 56690,
+    "cosmetic": 24441,
+    "skipped": {
+     "invalid-pattern": 3,
+     "popup": 2952,
+     "rewrite": 7,
+     "csp": 3,
+     "css-injection": 40,
+     "procedural": 293,
+     "cosmetic-option": 7
+    }
+   },
+   "pgl": {
+    "network": 3550,
+    "cosmetic": 0,
+    "skipped": {}
+   },
+   "indian": {
+    "network": 5350,
+    "cosmetic": 5000,
+    "skipped": {
+     "popup": 3,
+     "procedural": 179
+    }
+   },
+   "easyprivacy": {
+    "network": 56137,
+    "cosmetic": 2,
+    "skipped": {
+     "too-broad": 1,
+     "rewrite": 1,
+     "csp": 2,
+     "redirect": 27,
+     "scriptlet": 28,
+     "procedural": 4,
+     "method": 1,
+     "html-filter": 1,
+     "redirect-rule": 1
+    }
+   }
+  },
+  "rules": 18088,
+  "regexRules": 25,
+  "droppedRules": {
+   "budget": 0,
+   "regex": 0
+  },
+  "genericSelectors": 13331,
+  "siteSelectorHosts": 14251,
+  "cosmeticSkipped": {}
+ }
+}

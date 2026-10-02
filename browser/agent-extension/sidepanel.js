@@ -1,13 +1,11 @@
-// Side panel: the Browser and OS Control agents' goal, plan, activity log and
-// controls. It lives in the panel so it survives the agent navigating the tab.
 const $ = (id) => document.getElementById(id);
 
 let tab = 'browser';
 let planSteps = [];
 let stepIndex = 0;
-let currentTask = null;   // 'pending' while starting; ignores a replaced run's events
+let currentTask = null;
 let runState = 'idle';
-let runKind = 'browser';  // which agent the visible run belongs to: 'browser' | 'os'
+let runKind = 'browser';
 
 const SUGGESTIONS = {
   browser: [
@@ -22,7 +20,6 @@ const SUGGESTIONS = {
   ],
 };
 
-// What each agent state reads as, and how its pill is coloured.
 const STATES = {
   idle:             ['Ready', ''],
   starting:         ['Starting…', 'run'],
@@ -40,14 +37,11 @@ const FINISHED = new Set(['idle', 'completed', 'failed', 'aborted']);
 
 const VERBS = { navigate: 'Open', click: 'Click', click_text: 'Click', type: 'Type', scroll: 'Scroll',
   wait: 'Wait', press: 'Key', key: 'Key', extract: 'Read', select: 'Select', hover: 'Hover', os: 'OS',
-  // OS Control (os-agent.js describe())
   open: 'Open', switch: 'Switch', close: 'Close', dblclick: 'Double-click', rclick: 'Right-click',
   point: 'Point', drag: 'Drag', run: 'Run', file: 'File', look: 'Look', step: 'Step',
   retry: 'Retry', error: 'Error', ok: 'OK' };
 const verb = (t) => VERBS[t] || String(t || 'Step').replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 
-// Every innerHTML in this file is one of these constant SVGs; anything that
-// came from a page, the model or the user goes through textContent.
 const ICON_PLAY = '<path d="M7 5v14l12-7z"/>';
 const ICON_PAUSE = '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>';
 const ICON_CHECK = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
@@ -60,7 +54,6 @@ const RESULT_ICONS = Object.freeze({
   '': resultIcon('<rect x="7" y="7" width="10" height="10" rx="1.5"/>'),
 });
 
-// Messages to the worker never throw here: a closed channel reads as no reply.
 async function send(msg) {
   try { return await chrome.runtime.sendMessage(msg); } catch (_) { return null; }
 }
@@ -68,7 +61,7 @@ async function send(msg) {
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
-  if (text != null) e.textContent = text;   // page text never goes through innerHTML
+  if (text != null) e.textContent = text;
   return e;
 }
 
@@ -110,12 +103,14 @@ function act(tag, text, cls, detail) {
   const row = el('div', 'act' + (tag === 'retry' ? ' quiet' : ''));
   const tone = /^(ok|err|muted|warn)$/.test(cls || '') ? ' ' + cls : '';
   row.append(el('span', 'verb' + tone, verb(tag)), el('span', 'what', String(text ?? '')));
-  if (detail) row.title = String(detail).slice(0, 1000);   // the technical detail, on hover only
+  if (detail) row.title = String(detail).slice(0, 1000);
   $('log').appendChild(row);
   $('logSect').hidden = false;
   $('logCount').textContent = $('log').children.length;
   scrollDown();
 }
+
+const needsKey = (text) => /API key|rejected the|rejected this key|No model is set|base URL/i.test(String(text || ''));
 
 function result(kind, title, msg) {
   const box = el('div', 'result' + (kind ? ' ' + kind : ''));
@@ -124,6 +119,12 @@ function result(kind, title, msg) {
   const body = el('div');
   body.append(el('b', '', title));
   if (msg) body.append(el('div', 'msg', msg));
+  if (kind === 'err' && needsKey(msg)) {
+    const add = el('button', 'keyfix', 'Add API key');
+    add.type = 'button';
+    add.onclick = () => showKeyCard();
+    body.append(add);
+  }
   box.append(ic, body);
   $('tail').replaceChildren(box);
   scrollDown();
@@ -162,7 +163,6 @@ function setTab(t) {
 }
 document.querySelectorAll('.tab').forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
 
-// The OS loop runs in the service worker (os-agent.js); this renders its events.
 let osTaskId = null;
 
 function removeBox(id) {
@@ -170,7 +170,6 @@ function removeBox(id) {
   if (old) old.remove();
 }
 
-// A question with two buttons, shown under the activity log.
 function askBox(id, lead, parts, [yesLabel, onYes], [noLabel, onNo]) {
   removeBox(id);
   const box = el('div', 'confirm');
@@ -188,7 +187,6 @@ function askBox(id, lead, parts, [yesLabel, onYes], [noLabel, onNo]) {
   scrollDown();
 }
 
-// The helper will not touch anything until this is answered.
 function showOsConfirm(d) {
   const answer = (allow) => send({ type: 'os:confirm-answer', id: d.id, allow });
   askBox('osconfirm', 'Allow this? ', [
@@ -198,8 +196,6 @@ function showOsConfirm(d) {
   setState('waiting_for_user');
 }
 
-// A run started from the new-tab page (or before this panel opened) takes the
-// panel over: switch to the OS tab and start a clean view for it.
 function followOs(taskId, goal) {
   if (osTaskId === taskId) return;
   osTaskId = taskId; runKind = 'os'; currentTask = null;
@@ -218,7 +214,7 @@ function applyOsEvent(msg) {
       setState(d.state);
       break;
     case 'os:log':
-      if (/^\d+$/.test(d.tag || '')) {          // a new "look → think" turn
+      if (/^\d+$/.test(d.tag || '')) {
         planSteps.push(d.text); stepIndex = planSteps.length - 1; renderPlan();
       } else act(d.tag || 'os', d.text || '', d.tone, d.detail);
       break;
@@ -240,7 +236,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (!msg || !msg.type || !msg.type.startsWith('os:')) return;
   const d = msg.data || {};
   if (msg.type === 'os:started') { applyOsEvent(msg); return; }
-  if (!osTaskId || d.taskId !== osTaskId) return;   // not the run this panel shows
+  if (!osTaskId || d.taskId !== osTaskId) return;
   applyOsEvent(msg);
 });
 
@@ -271,8 +267,12 @@ async function osHealth() {
     const d = await r.json();
     const n = Array.isArray(d && d.modules) ? d.modules.length : 0;
     hint.replaceChildren(helperPill(true, 'Helper ready'), ` ${n} modules`);
-  } catch (_) {
-    hint.replaceChildren(helperPill(false, 'Helper offline'), ' run ', el('code', '', 'companion/install-autostart.sh'));
+  } catch (err) {
+    if (err && err.name === 'TimeoutError') {
+      hint.replaceChildren(helperPill(false, 'Waiting'), ' answer any macOS password prompt for Grol (Always Allow)');
+    } else {
+      hint.replaceChildren(helperPill(false, 'Helper offline'), ' run ', el('code', '', 'companion/install-autostart.sh'));
+    }
   }
 }
 
@@ -290,6 +290,7 @@ $('goal').addEventListener('keydown', (e) => {
 async function start() {
   const goal = $('goal').value.trim();
   if (!goal) return;
+  if (!(await refreshKeyState())) { pendingGoal = goal; return showKeyCard(); }
   reset(goal); showRun(true);
   $('goal').value = ''; autosize();
   currentTask = 'pending';
@@ -308,15 +309,12 @@ async function start() {
 }
 
 $('runBtn').onclick = start;
-// The controls act on the run being shown, whichever tab is selected. The
-// state shown comes back from the agent itself (status-change / os:state), so
-// the button only ever says "Resume" when the task really is paused.
 $('stop').onclick = async () => {
   $('stop').disabled = true;
   await send({ type: runKind === 'os' ? 'os:stop' : 'agent:stop' });
   $('stop').disabled = false;
   removeBox('handoff');
-  if (runKind !== 'os') setState('aborted');     // the OS task reports its own end
+  if (runKind !== 'os') setState('aborted');
 };
 $('pause').onclick = async () => {
   const resume = runState === 'paused';
@@ -335,9 +333,6 @@ $('newagent').onclick = () => {
   $('goal').value = ''; autosize(); $('goal').focus();
 };
 
-// Tasks also start outside the panel (the new-tab page sends agent:start
-// itself), so any sign of a run switches the panel over from the empty state.
-// A run that began elsewhere starts with a clean view rather than the last one.
 function followRun(d) {
   const goal = (d.task && d.task.goal) || d.goal;
   if ($('run').hidden) { reset(goal); showRun(true); }
@@ -353,7 +348,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   const runEvent = ['agent:plan-steps', 'agent:action-log', 'agent:task-complete'].includes(msg.type)
     || (msg.type === 'agent:status-change' && d.newState && d.newState !== 'idle');
   if (runEvent && !(msg.type === 'agent:task-complete' && currentTask === 'pending')) {
-    if (runKind === 'os' && osTaskId && !FINISHED.has(runState)) return;   // an OS run owns the panel
+    if (runKind === 'os' && osTaskId && !FINISHED.has(runState)) return;
     runKind = 'browser'; osTaskId = null;
     if (tab !== 'browser') setTab('browser');
     followRun(d);
@@ -366,7 +361,6 @@ chrome.runtime.onMessage.addListener((msg) => {
       if (d.newState) setState(d.newState);
       break;
     case 'agent:require-user-action':
-      // The agent is waiting on the user (sign-in, OTP, captcha, a question).
       askBox('handoff', 'Needs you: ', [document.createTextNode(d.message || 'Finish this step on the page yourself.')],
         ["I'm done — continue", () => send({ type: 'agent:user-done' })],
         ['Stop task', () => { send({ type: 'agent:stop' }); setState('aborted'); }]);
@@ -375,23 +369,16 @@ chrome.runtime.onMessage.addListener((msg) => {
       removeBox('handoff');
       break;
     case 'agent:plan-progress':
-      // The agent names the plan step it is on; everything before it is done.
       stepIndex = Math.max(0, Math.min(d.index || 0, planSteps.length - 1)); renderPlan();
       break;
     case 'agent:action-log':
       act(d.actionType || 'step', d.description || '');
       break;
     case 'agent:task-complete': {
-      // 'pending' means our own run's id is not back yet, so this completion
-      // belongs to the run we just replaced - showing it reads as a failure.
       if (currentTask === 'pending') break;
       if (currentTask && d.taskId && d.taskId !== currentTask) break;
       const text = d.result || '';
-      if (d.success && d.verified === false) {
-        result('warn', 'Finished — not verified', (text ? text + ' ' : '') +
-          "The completion check couldn't run, so check the page yourself.");
-        setState('completed', 'Not verified');
-      } else if (d.success) {
+      if (d.success) {
         stepIndex = planSteps.length; renderPlan();
         result('ok', 'Done', text); setState('completed');
       } else if (/stopped by user/i.test(text)) {
@@ -404,8 +391,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// Catch up if the panel opened after the run began: a running OS task replays
-// its event log; otherwise the browser agent's snapshot is shown.
 function replayOs(t) {
   followOs(t.taskId, t.goal);
   t.events.forEach(applyOsEvent);
@@ -435,8 +420,6 @@ async function catchUpAgent() {
   return true;
 }
 
-// Chrome may restart the service worker mid-run, which drops the task without
-// a final event. While a run is shown as live, check it still exists.
 async function checkRunAlive() {
   if ($('run').hidden || FINISHED.has(runState) || currentTask === 'pending') return;
   const lost = () => {
@@ -460,40 +443,95 @@ async function checkRunAlive() {
   if (s && s.ok && s.state === 'idle' && runKind === 'browser' && !FINISHED.has(runState)) lost();
 }
 
-// A fresh install has no key and nothing works without one, so the panel
-// asks for it up front; the key button in the header reopens it.
+
+let pendingGoal = '';
+
+function showKeyCard() {
+  showRun(false);
+  $('keycard').hidden = false;
+  $('keyinput').focus();
+}
+
+let providers = [];
+
+function syncProviderFields() {
+  const id = $('keyprovider').value;
+  const p = providers.find((x) => x.id === id);
+  const local = !!(p && p.local);
+  $('keybaserow').hidden = !(id === 'custom' || local);
+  if (p && p.baseUrl && !$('keybase').value) $('keybase').placeholder = p.baseUrl;
+  $('keyinput').placeholder = local ? 'API key (not needed for a local server)'
+    : id === 'custom' ? 'API key (if your server needs one)' : 'Paste your API key';
+  $('keymodel').placeholder = p && p.models && p.models.length
+    ? `Leave empty for ${p.models[0]}` : (local || id === 'custom' ? 'e.g. llama3.2-vision, qwen2.5-vl' : 'Leave empty for the recommended model');
+  const link = $('keylink');
+  link.hidden = !(p && p.keyUrl) && id !== 'auto';
+  if (p && p.keyUrl) link.href = p.keyUrl;
+}
 
 async function refreshKeyState() {
   const r = await send({ type: 'settings:get' });
   const has = !!(r && r.hasKey);
+  if (r && Array.isArray(r.providers) && !providers.length) {
+    providers = r.providers;
+    const sel = $('keyprovider');
+    for (const p of providers) {
+      const o = document.createElement('option');
+      o.value = p.id; o.textContent = p.label;
+      sel.append(o);
+    }
+  }
+  if (r) {
+    $('keyprovider').value = r.provider || 'auto';
+    if (r.baseUrl) $('keybase').value = r.baseUrl;
+    if (r.model) $('keymodel').value = r.model;
+    $('keynow').hidden = !has;
+    $('keynow').textContent = has ? `Using ${r.providerLabel}${r.model ? ` · ${r.model}` : ''}. Save a new key to switch.` : '';
+    syncProviderFields();
+  }
   $('keybtn').classList.toggle('warn', !has);
-  if (!has) { showRun(false); $('keycard').hidden = false; }
+  if (!has && $('run').hidden) $('keycard').hidden = false;
   return has;
 }
 
 $('keybtn').onclick = () => {
-  if (!$('run').hidden) showRun(false);
+  if (!$('run').hidden) return showKeyCard();
   $('keycard').hidden = !$('keycard').hidden;
   if (!$('keycard').hidden) $('keyinput').focus();
 };
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.type === 'settings:needed') {
+    if (msg.goal) pendingGoal = String(msg.goal);
+    refreshKeyState().then((has) => { if (!has) showKeyCard(); });
+  }
+});
 
 $('keycard').onsubmit = async (e) => {
   e.preventDefault();
   const apiKey = $('keyinput').value.trim();
   const msg = $('keymsg');
   const say = (cls, text) => { msg.className = 'keymsg' + (cls ? ' ' + cls : ''); msg.textContent = text; };
-  if (!apiKey) return say('err', 'Paste your Gemini API key first.');
+  const provider = $('keyprovider').value;
+  const p = providers.find((x) => x.id === provider);
+  const keyless = (p && p.local) || provider === 'custom';
+  if (!apiKey && !keyless) return say('err', 'Paste your API key first.');
   const save = $('keycard').querySelector('button[type=submit]');
   save.disabled = true;
-  say('', 'Checking the key with Google…');
-  const r = await send({ type: 'settings:save', apiKey });
+  say('', 'Checking the key…');
+  const r = await send({ type: 'settings:save', apiKey, provider,
+    baseUrl: $('keybase').value.trim(), model: $('keymodel').value.trim() });
   save.disabled = false;
   if (!r || !r.ok) return say('err', (r && r.error) || 'Could not save the key. Try again.');
   $('keyinput').value = '';
-  say('ok', r.verified ? 'Saved. You can start a task.' : "Saved, but Google couldn't be reached to check it.");
+  say('ok', r.verified ? `Saved — using ${r.provider}. You can start a task.` : `Saved, but ${r.provider} couldn't be reached to check it.`);
+  refreshKeyState();
   $('keybtn').classList.remove('warn');
+  if (pendingGoal) { $('goal').value = pendingGoal; pendingGoal = ''; autosize(); $('goal').focus(); }
   setTimeout(() => { $('keycard').hidden = true; msg.textContent = ''; }, 1500);
 };
+
+$('keyprovider').onchange = syncProviderFields;
 
 renderChips();
 setState('idle');

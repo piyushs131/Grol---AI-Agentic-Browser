@@ -1,9 +1,6 @@
-// Holds the capability modules and resolves module.action names to a handler.
 
 const { NOOP_LOGGER } = require('../../memory/logs');
 
-// Models often ask the "wrong" module for an action (desktop.openApplication,
-// process.typeText); route those to where the action actually lives.
 const ACTION_ALIASES = new Map(Object.entries({
   desktop: {
     openApplication: { module: 'process', action: 'openApplication' },
@@ -86,8 +83,6 @@ class ModuleRegistry {
     return manifest;
   }
 
-  // The module.action that will really run: the direct match, then a known
-  // alias, then any other module offering an action of that name. Null if none.
   resolve(moduleName, actionName) {
     if (this._supports(moduleName, actionName)) {
       return { module: moduleName, action: actionName };

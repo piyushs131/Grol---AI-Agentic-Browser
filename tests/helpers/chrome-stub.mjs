@@ -1,4 +1,3 @@
-// Minimal chrome.* stub so extension modules can be imported under node.
 export function installChromeStub(overrides = {}) {
   const store = {};
   const listeners = () => ({ addListener() {}, removeListener() {} });
@@ -29,5 +28,8 @@ export function installChromeStub(overrides = {}) {
     ...overrides
   };
   globalThis.self = globalThis;
+  globalThis.addEventListener ||= () => {};
+  globalThis.skipWaiting ||= async () => {};
+  globalThis.clients ||= { claim: async () => {} };
   return store;
 }

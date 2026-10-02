@@ -1,4 +1,3 @@
-// Leveled logger for the daemon: timestamped lines to the console and a file.
 
 const path = require('path');
 const fs = require('fs');
@@ -9,8 +8,6 @@ const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const noop = () => {};
 const NOOP_LOGGER = Object.freeze({ debug: noop, info: noop, warn: noop, error: noop, close: noop });
 
-// Accepts any partial logger ({ info, warn, error } from the launcher, say)
-// and fills in the missing levels so callers never have to check.
 function normalizeLogger(logger) {
   if (!logger) return NOOP_LOGGER;
   const pick = (level, fallback) => (typeof logger[level] === 'function' ? logger[level].bind(logger) : fallback);
@@ -50,13 +47,10 @@ class DaemonLogger {
   }
 }
 
-// A long-lived daemon appends forever, so the previous file is kept as .1 once
-// it passes MAX_LOG_BYTES.
 function rotateIfLarge(logFile) {
   try {
     if (fs.statSync(logFile).size > MAX_LOG_BYTES) fs.renameSync(logFile, `${logFile}.1`);
   } catch {
-    // No file yet.
   }
 }
 
@@ -65,7 +59,6 @@ function openLogStream(logFile) {
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     rotateIfLarge(logFile);
     const stream = fs.createWriteStream(logFile, { flags: 'a' });
-    // Open/write failures arrive as 'error' events; unhandled they would kill the daemon.
     stream.on('error', (err) => {
       console.error(`[DaemonLogger] log file ${logFile} unusable: ${err.message}`);
       stream.destroy();

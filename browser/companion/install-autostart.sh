@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Installs the OS Control helper as a launchd agent (starts at login, restarts on exit).
-# It lives in Application Support because TCC blocks launchd agents from ~/Desktop,
-# ~/Documents and ~/Downloads, where the repo usually sits.
-#
-#   ./install-autostart.sh           install, then start
-#   ./install-autostart.sh --remove  stop and uninstall
 set -euo pipefail
 cd "$(dirname "$0")"
 SRC="$PWD"
@@ -12,7 +6,6 @@ REPO="$(cd ../.. && pwd)"
 DEST="$HOME/Library/Application Support/Grol/companion"
 LABEL="com.grol.os-companion"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-# The real binary, not a version-manager shim (nvm, volta, asdf), since it gets copied.
 NODE="$(node -p process.execPath 2>/dev/null || true)"
 
 if [ "${1:-}" = "--remove" ]; then
@@ -28,13 +21,11 @@ fi
 echo "▶ installing to $DEST"
 mkdir -p "$DEST/logs" "$DEST/bin"
 
-# macOS grants Accessibility / Screen Recording to the executable, so the helper
-# runs its own copy of node; keeping it across reinstalls keeps the grant.
 if [ ! -x "$DEST/bin/node" ]; then
   cp "$NODE" "$DEST/bin/node"
 fi
 NODE="$DEST/bin/node"
-export PATH="$DEST/bin:$PATH"     # native modules must be built for this node
+export PATH="$DEST/bin:$PATH"
 rsync -a --delete --exclude node_modules --exclude .agent-os-data "$REPO/ai-agent-os/" "$DEST/ai-agent-os/"
 cp "$SRC/daemon.js" "$DEST/daemon.js"
 cp "$REPO/ai-agent-os/package.json" "$DEST/package.json"
@@ -62,7 +53,6 @@ cat > "$PLIST" <<PLIST_EOF
 PLIST_EOF
 
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-# bootout returns before the job is gone; bootstrapping too early fails with "Load failed: 5".
 for _ in $(seq 1 20); do
   launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break
   sleep 0.25

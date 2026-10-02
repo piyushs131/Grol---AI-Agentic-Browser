@@ -1,7 +1,4 @@
-// The browser agent's prompts: the decision prompt, the up-front plan, the
-// "is it really done?" audit, and the per-turn description of the page.
 
-// "under ₹5,000", "below 5k", "over Rs 2000" -> { bound, value }, or null.
 export function priceLimit(goal) {
   const m = /\b(under|below|less than|upto|up to|within|max(?:imum)?|cheaper than|over|above|more than|min(?:imum)?|at least)\s*(?:₹|rs\.?|inr|\$|usd)?\s*([\d,]+(?:\.\d+)?)\s*(k)?\b/i.exec(String(goal || ''));
   if (!m) return null;
@@ -78,6 +75,7 @@ expectations of what the site "usually" shows.
 {"action":"select_option","mark":8,"text":"2"}          choose a value in a dropdown
 {"action":"set_range","value":5000,"bound":"max"}       set a SLIDER (price range) by its real value
 {"action":"scroll","direction":"down","amount":600}     scroll the page
+{"action":"scroll","direction":"down","mark":12}         scroll the PANEL holding mark 12 (a sidebar or list with its own scrollbar)
 {"action":"back"}                                       return to the previous page
 {"action":"navigate","url":"https://mail.google.com"}   go straight to a URL
 {"action":"key","key":"Enter"}                          Enter|Escape|Tab|Backspace
@@ -169,6 +167,20 @@ So when a goal is "find X somewhere, then put X somewhere else":
 3. Only then go to the page where the information has to be used.
 4. Type the values FROM YOUR NOTES, which are shown back to you every turn.
 
+FILTERS AND LABELS THAT ARE NOT ON SCREEN: shop sidebars are long, and the
+filter the goal names ("Android 14", "4 GB", "4 Stars & Up") is often far below
+the visible part (it may be in TEXT ELSEWHERE ON THE PAGE, or not listed at all).
+Use {"action":"click_text","text":"<the EXACT label>"} - it scrolls the page and
+side panels to find it and clicks it. NEVER click a shorter or similar label
+instead: "Android" is not "Android 14", "Samsung" is not "Samsung Galaxy S24".
+After applying a filter, check it is ticked / shown as a chip before moving on.
+
+If the SITE shows its own error ("Oops! something went wrong", "Try again", 429,
+"too many requests", a blank panel where content belongs), set state "error". Click
+its Try Again / reload ONCE (the agent waits a few seconds first). If it comes back,
+do not keep clicking: go to the same place another way - navigate to the site's
+URL for that page (e.g. its /cart or /checkout path) or reload from the home page.
+
 Never navigate away from a page holding information you still need but have not
 written down. If a "navigate" reports that it did not happen, the URL is blocked
 or unreachable - do NOT repeat it; reach the same place another way (a link on
@@ -243,6 +255,10 @@ export const VERIFY_PROMPT = (goal, claim) =>
   '3 stories summarised" needs 3 items, each with a real summary of what ' +
   'the story is about - titles alone are not a summary. Reject only for a ' +
   'missing or unsupported part, and say exactly which.\n\n' +
+  'A goal that BOTH applies filters / settings AND asks for information is not an ' +
+  'information-only goal: every filter it names must be visibly applied on the CURRENT ' +
+  'page (ticked, a chip, a selected range), and the reported items must respect them. ' +
+  'An item above the price limit or with a different spec than asked means NOT complete.\n\n' +
   'Also check the WHAT YOU ALREADY DID list for anything the goal did not ask for (adding ' +
   'to cart, buying, signing in, sending). If such an action was taken, the ' +
   'task is NOT complete: name it in "missing".\n\n' +
@@ -280,8 +296,6 @@ export function buildVisionMessage(ctx) {
   }
   lines.push('');
 
-  // The page's own words: what stops the agent clicking "buy" on a product
-  // that cannot be bought.
   const signals = a.signals || {};
   const flags = [];
   if (signals.unavailable) flags.push('UNAVAILABLE / CANNOT BE SUPPLIED: "' + signals.unavailable + '"');
@@ -399,8 +413,6 @@ export function buildVisionMessage(ctx) {
   if (ctx.sliders && ctx.sliders.length) {
     lines.push('SLIDERS ON THIS PAGE (not in the numbered list - move them with set_range):');
     for (const sl of ctx.sliders) lines.push(`  - ${sl.label}: currently ${sl.shows}`);
-    // Spell the move out when the goal carries a price limit: weaker models
-    // otherwise click a price label or retype the search instead.
     const lim = priceLimit(ctx.goal);
     if (lim) {
       const cur = ctx.sliders.find(sl => (lim.bound === 'max' ? /max|upper|high/i : /min|lower|low/i).test(sl.label))

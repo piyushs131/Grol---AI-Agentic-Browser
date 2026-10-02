@@ -1,7 +1,3 @@
-// Core tests for the OS Control daemon: HTTP contract, request validation,
-// confirmation flow, origin/host guards, lifecycle and the risk policy.
-// Nothing here clicks, types, opens apps or runs shell commands: dangerous
-// actions are only ever asked for, then denied.
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
@@ -37,7 +33,6 @@ function captureLogger() {
   return { lines, info: push('info'), warn: push('warn'), error: push('error') };
 }
 
-// A module with harmless handlers covering each policy and failure shape.
 class TestKitModule extends CapabilityModule {
   constructor() {
     super('testkit', 'test double');
@@ -458,11 +453,45 @@ describe('confirmation flow', () => {
   });
 });
 
+describe('local model relay', () => {
+  test('relays to a loopback model server without an Origin and returns its status and body', async () => {
+    const http = require('http');
+    let seenOrigin = 'unset';
+    const model = http.createServer((req, res) => {
+      seenOrigin = req.headers.origin;
+      let b = ''; req.on('data', (c) => { b += c; });
+      req.on('end', () => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ echo: JSON.parse(b || '{}') })); });
+    });
+    await new Promise((r) => model.listen(0, '127.0.0.1', r));
+    try {
+      const url = `http://127.0.0.1:${model.address().port}/v1/chat/completions`;
+      const r = await request(port, { method: 'POST', path: '/llm-local', headers: { Origin: EXT }, body: { url, body: { model: 'm' } } });
+      assert.equal(r.status, 200);
+      assert.equal(r.json.status, 200);
+      assert.deepEqual(JSON.parse(r.json.body), { echo: { model: 'm' } });
+      assert.equal(seenOrigin, undefined, 'the model server sees no browser Origin');
+    } finally {
+      model.close();
+    }
+  });
+
+  test('refuses anything but a loopback model API, and never the daemon itself', async () => {
+    for (const url of ['https://example.com/v1/x', 'http://localhost.evil.com:1234/v1/x', `http://127.0.0.1:${port}/v1/x`,
+      'http://localhost:11434/execute', 'file:///etc/passwd', 42]) {
+      const r = await request(port, { method: 'POST', path: '/llm-local', body: { url } });
+      assert.equal(r.status, 400, String(url));
+    }
+    const r = await request(port, { method: 'POST', path: '/llm-local', body: { url: 'http://localhost:11434/v1/x', method: 'DELETE' } });
+    assert.equal(r.status, 400);
+  });
+});
+
 describe('origin and host guards', () => {
   const routes = [
     { method: 'GET', path: '/health' },
     { method: 'POST', path: '/execute', body: { task_id: 'o', module: 'scheduler', action: 'getTime' } },
-    { method: 'POST', path: '/confirm', body: { confirmation_id: 'none' } }
+    { method: 'POST', path: '/confirm', body: { confirmation_id: 'none' } },
+    { method: 'POST', path: '/llm-local', body: { url: 'http://localhost:11434/v1/models', method: 'GET' } }
   ];
 
   for (const origin of ['https://evil.example', 'null', 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'http://127.0.0.1:1234', '']) {
@@ -616,7 +645,6 @@ describe('risk policy', () => {
           continue;
         }
         assert.equal(needsConfirmation, true, `${name} must require confirmation`);
-        // Only reached once the policy has said it asks, so nothing runs.
         const r = await execute(module, action, { path: 'desktop/grol-test-never-created', command: 'true', name: 'x' });
         assert.equal(r.json.status, 'requires_confirmation', name);
         await deny(r.json.result.confirmation_id);

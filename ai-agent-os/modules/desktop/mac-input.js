@@ -1,13 +1,5 @@
-// macOS input via CoreGraphics events posted from JXA (osascript).
-// The AppleScript route ("tell System Events to keystroke") needs a separate
-// Automation grant that macOS silently refuses to a launchd agent (-1743);
-// CGEvents need only Accessibility.
-// Coordinates are macOS points (top-left origin of the primary display), not
-// screenshot pixels: on a Retina display a screenshot is backingScaleFactor times larger.
 const cp = require('child_process');
 
-// Virtual key codes (ANSI layout). Letters/digits are only used for shortcuts;
-// typed text goes through CGEventKeyboardSetUnicodeString and is layout-free.
 const KEYCODES = {
   a: 0, s: 1, d: 2, f: 3, h: 4, g: 5, z: 6, x: 7, c: 8, v: 9, b: 11, q: 12,
   w: 13, e: 14, r: 15, y: 16, t: 17, '1': 18, '2': 19, '3': 20, '4': 21,
@@ -59,8 +51,6 @@ function appQuery(name) {
   return q;
 }
 
-// Data reaches the script only through argv (JSON), never by splicing it into
-// the source, so no value can change what the script does.
 function jxaScript(body) {
   return [
     'ObjC.import("CoreGraphics"); ObjC.import("AppKit"); ObjC.import("ApplicationServices");',
@@ -84,8 +74,6 @@ function jxa(body, args = {}, timeout = 20000) {
   });
 }
 
-// Posted events are dropped SILENTLY when the grant is missing, so every input
-// call checks first; otherwise the agent "succeeds" while nothing happens.
 async function requireAccessibility() {
   const ok = await jxa('return $.AXIsProcessTrusted();');
   if (!ok) {
@@ -103,7 +91,6 @@ async function permissions() {
   return { accessibility: !!(p && p.accessibility), screenRecording: !!(p && p.screenRecording), binary: process.execPath };
 }
 
-// Each prompt appears only once; afterwards only System Settings can grant.
 async function requestPermissions() {
   await jxa(`
     ObjC.bindFunction("CGRequestScreenCaptureAccess", ["bool", []]);
@@ -119,7 +106,6 @@ async function moveMouse(x, y) {
   return jxa('post($.CGEventCreateMouseEvent(null, 5, {x: args.x, y: args.y}, 0)); return true;', { x, y });
 }
 
-// x/y undefined clicks at the current pointer position.
 async function click(x, y, button = 'left', doubleClick = false) {
   if (!own(BUTTONS, button)) throw new Error(`Unknown mouse button '${button}'`);
   await requireAccessibility();
@@ -150,7 +136,6 @@ async function drag(fromX, fromY, toX, toY) {
     return true;`, { fx: fromX, fy: fromY, tx: toX, ty: toY });
 }
 
-// Positive wheel deltas scroll up / left.
 function scrollDeltas(lines, direction) {
   const sign = direction === 'up' || direction === 'left' ? 1 : -1;
   const horizontal = direction === 'left' || direction === 'right';
@@ -160,8 +145,6 @@ function scrollDeltas(lines, direction) {
 async function scroll(lines = 3, direction = 'down') {
   if (!['up', 'down', 'left', 'right'].includes(direction)) throw new Error(`Unknown scroll direction '${direction}'`);
   await requireAccessibility();
-  // CGEventCreateScrollWheelEvent is variadic, and on arm64 variadic arguments
-  // travel on the stack, so a fixed-arity binding drops the horizontal delta.
   return jxa(`
     ObjC.bindFunction("CGEventCreateScrollWheelEvent2", ["id", ["void*", "int", "unsigned int", "int", "int", "int"]]);
     post($.CGEventCreateScrollWheelEvent2(null, 1, args.count, args.v, args.h, 0)); return true;`,
@@ -186,10 +169,7 @@ async function typeText(text, delayMs = 15) {
   if (typeof text !== 'string' || !text) throw new Error('Text is required');
   if (text.length > MAX_TYPE_LENGTH) throw new Error(`Text is longer than ${MAX_TYPE_LENGTH} characters`);
   await requireAccessibility();
-  // Newlines and tabs as real keys: a unicode "\n" is ignored by many apps.
   return jxa(`
-    // The string MUST go in as a Ref("unsigned short") buffer: a plain JS array
-    // is silently ignored and every character arrives as keycode 0, i.e. "a".
     function withText(e, units) {
       var r = Ref('unsigned short');
       for (var j = 0; j < units.length; j++) r[j] = units[j];
@@ -203,7 +183,6 @@ async function typeText(text, delayMs = 15) {
         post($.CGEventCreateKeyboardEvent(null, code, true)); post($.CGEventCreateKeyboardEvent(null, code, false));
         if (ch === 13 && s.charCodeAt(i + 1) === 10) i++;
       } else {
-        // A surrogate pair (emoji etc.) is one character: send both halves together.
         var units = (ch >= 0xD800 && ch <= 0xDBFF && i + 1 < s.length) ? [ch, s.charCodeAt(++i)] : [ch];
         post(withText($.CGEventCreateKeyboardEvent(null, 0, true), units));
         post(withText($.CGEventCreateKeyboardEvent(null, 0, false), units));
@@ -217,7 +196,6 @@ async function mousePosition() {
   return jxa('var p = $.CGEventGetLocation($.CGEventCreate(null)); return {x: Math.round(p.x), y: Math.round(p.y)};');
 }
 
-// NSScreen frames use a bottom-left origin; CG events use top-left of screens[0].
 const DISPLAYS_JXA = `
   var screens = $.NSScreen.screens, out = [];
   var primaryH = screens.count ? screens.objectAtIndex(0).frame.size.height : 0;
@@ -246,8 +224,6 @@ async function frontmostApp() {
     if (!a || a.isNil()) return { app: null, title: '' };
     var out = { app: ObjC.unwrap(a.localizedName) || null, bundleId: ObjC.unwrap(a.bundleIdentifier) || null,
       pid: a.processIdentifier, title: '' };
-    // The window list needs no permission (only titles are blank without Screen
-    // Recording). It is ordered front to back; skip invisible helper windows.
     var list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1 | 16, 0))) || [];
     for (var i = 0; i < list.length; i++) {
       var w = list[i], b = w.kCGWindowBounds || {};
@@ -260,8 +236,6 @@ async function frontmostApp() {
     return out;`);
 }
 
-// Running regular apps whose name matches, most exact first. `loose` also
-// accepts an app whose name is contained in the query ("Visual Studio Code" -> "Code").
 function findRunning(name, loose = false) {
   return jxa(`
     var q = args.q.toLowerCase();
@@ -277,8 +251,6 @@ function findRunning(name, loose = false) {
     return hits;`, { q: appQuery(name), loose: !!loose });
 }
 
-// Is the frontmost app the one asked for? Loose enough for "Visual Studio Code"
-// vs "Code", strict enough that "a" does not match every app.
 function appMatches(front, name) {
   const q = appQuery(name).toLowerCase();
   const n = String((front && front.app) || '').toLowerCase();
@@ -301,7 +273,6 @@ async function activate(name) {
   return waitForFront(hits[0].name, 3000);
 }
 
-// A fuzzy match is fine for focusing but not for quitting: "o" must not quit Chrome.
 async function quit(name) {
   const q = appQuery(name);
   const hits = (await findRunning(q)).filter((h) => h.score >= 2 || q.length >= 3);
@@ -342,7 +313,6 @@ function installedApps() {
   });
 }
 
-// "vs code" -> "Visual Studio Code", "slack app" -> "Slack"; returns a name or path for `open -a`.
 function pickApp(apps, name) {
   const q = appQuery(name).replace(/\s+app$/i, '');
   const lc = q.toLowerCase();
@@ -357,7 +327,6 @@ function pickApp(apps, name) {
     (a.path.startsWith('/Applications') ? -1 : 1))[0];
   const starts = nq ? apps.filter((a) => norm(a.name).startsWith(nq)) : [];
   const has = nq ? apps.filter((a) => norm(a.name).includes(nq)) : [];
-  // Initials: "vsc" -> Visual Studio Code.
   const compact = lc.replace(/\s+/g, '');
   const init = compact.length >= 2
     ? apps.filter((a) => a.name.split(/\s+/).map((w) => w[0] || '').join('').toLowerCase() === compact) : [];
@@ -370,32 +339,31 @@ async function resolveApp(name) {
   return pickApp(own(ALIASES, lc) ? [] : await installedApps(), name);
 }
 
-function openBundle(target, args) {
+function openBundle(target, args, file = null) {
   return new Promise((resolve, reject) => {
-    cp.execFile('open', ['-a', target, ...(args.length ? ['--args', ...args] : [])], { timeout: 15000 },
+    cp.execFile('open', ['-a', target, ...(file ? [file] : []), ...(args.length ? ['--args', ...args] : [])], { timeout: 15000 },
       (err, _out, stderr) => err ? reject(new Error(String(stderr || err.message).trim())) : resolve());
   });
 }
 
-// `open -a` returns as soon as LaunchServices accepts the request, long before
-// the window exists, so wait until the app is frontmost; otherwise the next
-// keystroke goes to the browser.
-async function openApp(name, args = []) {
+async function openApp(name, args = [], file = null) {
   const requested = appQuery(name);
   if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) throw new Error('args must be an array of strings');
+  if (file !== null && (typeof file !== 'string' || !(file.startsWith('/') || /^(https?|mailto):/i.test(file)))) {
+    throw new Error('file must be an absolute path or a URL');
+  }
   let target = requested;
-  try { await openBundle(target, args); }
+  try { await openBundle(target, args, file); }
   catch (first) {
     target = await resolveApp(requested);
     if (target === requested) throw new Error(`Could not open '${requested}': ${first.message}`);
-    try { await openBundle(target, args); }
+    try { await openBundle(target, args, file); }
     catch (e) { throw new Error(`Could not open '${requested}' (tried ${target}): ${e.message}`); }
   }
   const application = (target.startsWith('/') ? target.split('/').pop() : target).replace(/\.app$/i, '');
   const state = await waitForFront(application, 8000);
-  // An app that starts behind the current window needs one explicit activate.
   const final = state.focused ? state : await activate(application);
-  return { application, launched: true, platform: 'darwin',
+  return { application, launched: true, platform: 'darwin', ...(file ? { opened: file } : {}),
     focused: !!final.focused, frontmost: final.frontmost || state.frontmost };
 }
 
@@ -412,6 +380,7 @@ async function ensureFront(app) {
 }
 
 module.exports = {
+  __waitForFront: waitForFront,
   ensureFront, openApp, permissions, requestPermissions, moveMouse, click, drag, scroll,
   pressKey, hotkey, typeText, mousePosition, screenSize, displays, frontmostApp, activate, quit,
   __test: { jxa, jxaScript, keyCode, flagsFor, appQuery, appMatches, pickApp, scrollDeltas, MAX_TYPE_LENGTH }

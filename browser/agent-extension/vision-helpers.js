@@ -1,5 +1,3 @@
-// Pure helpers for VisionAgent: start/recovery URLs, label matching and the
-// human-readable descriptions of views and actions.
 
 const SITES = [
   [/\bamazon\b/, 'https://www.amazon.in'],
@@ -31,10 +29,8 @@ const hostOf = (u) => {
   try { return new URL(u).hostname.replace(/^www\./, ''); } catch (_) { return ''; }
 };
 
-// The site a goal starts on, or null to stay on the current page.
 export function startUrlFor(goal, here) {
   const g = String(goal || '').toLowerCase();
-  // The site mentioned FIRST wins ("compare on Amazon and Flipkart" starts on Amazon).
   let dest = null, at = Infinity;
   for (const [re, url] of SITES) {
     const m = re.exec(g);
@@ -49,9 +45,6 @@ export function startUrlFor(goal, here) {
   return blank ? searchUrl(String(goal).trim()) : null;
 }
 
-// Where to send a tab that has nothing to observe. Ends in a web search so a
-// goal that names no site (and whose plan names no URL) never leaves the agent
-// stuck on a blank tab.
 export function recoveryUrl({ plan = [], goal = '', lastGoodUrl = null } = {}) {
   for (const line of plan) {
     const m = /https?:\/\/[^\s)\]"'<>]+/i.exec(String(line));
@@ -64,8 +57,6 @@ export function recoveryUrl({ plan = [], goal = '', lastGoodUrl = null } = {}) {
   return g.trim() ? searchUrl(g.trim()) : null;
 }
 
-// Letters and digits of any script: an ASCII-only squash turns every
-// Devanagari or Arabic label into '' and makes them all "equal".
 const squash = (s) => String(s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 
 function scoreMarksByText(marks, text) {
@@ -89,8 +80,6 @@ function scoreMarksByText(marks, text) {
     else if (name.includes(want)) base = 60;
     else if (wantSquashed && ns.includes(wantSquashed)) base = 55;
     else continue;
-    // The penalties only break ties; `base` alone decides whether two matches
-    // are an ambiguous choice (thirty "Add to cart" differ only by penalty).
     const area = (m.rect?.w || 0) * (m.rect?.h || 0);
     const score = base
       - Math.min(20, name.length / Math.max(1, want.length))
@@ -101,14 +90,11 @@ function scoreMarksByText(marks, text) {
   return scored;
 }
 
-// Every mark the label could plausibly mean, best first. More than one only
-// when the choice is genuinely open, and the caller must then ask, not guess.
 export function matchMarksByText(marks, text) {
   const all = scoreMarksByText(marks, text);
   if (!all.length) return [];
   const top = all[0].base;
   const tied = all.filter(s => s.base >= top).map(s => s.m);
-  // Identical labels (a repeated icon) are not a real choice.
   const distinct = new Set(tied.map(m => (m.name || '').trim()));
   return distinct.size > 1 ? tied : tied.slice(0, 1);
 }
@@ -162,17 +148,21 @@ export function describeAction(action, view) {
     case 'remember': return `Noting: ${clip(action.note, 70)}`;
     case 'open_tab': return `Opening a new tab: ${action.url}`;
     case 'switch_tab': return `Switching to tab ${action.index}`;
-    case 'scroll': return `Scrolling ${action.direction} ${action.amount}px`;
+    case 'scroll': return `Scrolling ${action.direction} ${typeof action.mark === 'number' ? `the panel at ${named(action.mark)}` : 'the page'}`;
     case 'key': return `Pressing ${action.key}`;
-    case 'find_text': return `Looking for "${action.text}"`;
-    case 'wait': return `Waiting ${action.ms}ms`;
+    case 'find_text': return `Looking for "${action.text}" on the page`;
+    case 'wait': {
+      const s = Math.round((Number(action.ms) || 1000) / 100) / 10;
+      return `Waiting ${s} second${s === 1 ? '' : 's'} for the page`;
+    }
     case 'done': return `Done: ${action.summary}`;
     default: return action.action;
   }
 }
 
-export function actionKey(url, action) {
+export function actionKey(url, action, scrollY) {
   const parts = [url, action.action];
+  if (action.action === 'scroll' && typeof scrollY === 'number') parts.push('y' + Math.round(scrollY / 100));
   if (typeof action.mark === 'number') parts.push('m' + action.mark);
   if (typeof action.x === 'number') parts.push(`${Math.round(action.x / 25)},${Math.round(action.y / 25)}`);
   if (action.url) parts.push(action.url);
@@ -210,12 +200,10 @@ const MODIFIERS = {
   shift: 'shift'
 };
 
-// "Control+a", "cmd + shift + z", "Shift+Tab", "+" -> { key, modifiers }.
 export function parseKeyChord(spec) {
   if (spec === ' ') return { key: 'Space', modifiers: [] };
   const raw = String(spec ?? '').trim() || 'Enter';
   const parts = raw.length > 1 ? raw.split(/\s*\+\s*/) : [raw];
-  // "Control++" splits into a trailing empty part: the key is "+".
   if (parts.length > 1 && parts[parts.length - 1] === '') { parts.pop(); parts[parts.length - 1] = '+'; }
   const modifiers = [];
   while (parts.length > 1 && MODIFIERS[parts[0].toLowerCase()]) {
@@ -228,8 +216,6 @@ export function parseKeyChord(spec) {
 
 const NAV_SCHEME_RE = /^https?:/i;
 
-// A URL the agent may open, or null. The model writes "amazon.in/deals";
-// javascript:, chrome:// and the like are refused, not "fixed".
 export function normalizeNavUrl(url) {
   const u = String(url ?? '').trim();
   if (!u) return null;
@@ -243,7 +229,6 @@ export function normalizeNavUrl(url) {
   try { return new URL('https://' + u).href; } catch (_) { return null; }
 }
 
-// Formatting inputs re-space what was typed ("98765 43210").
 export function valueMatches(got, want) {
   const g = String(got ?? '');
   const w = String(want ?? '');
@@ -252,8 +237,6 @@ export function valueMatches(got, want) {
   return !!ws && squash(g).includes(ws);
 }
 
-// Settles to a failure result rather than hanging; `timedOut` lets the caller
-// cancel the work that is still running.
 export function withDeadline(promise, ms, label) {
   let timer;
   return Promise.race([
@@ -262,4 +245,17 @@ export function withDeadline(promise, ms, label) {
       timer = setTimeout(() => resolve({ success: false, timedOut: true, error: `${label} exceeded ${ms}ms` }), ms);
     })
   ]);
+}
+
+export function lookAlikeOfGoal(label, goal) {
+  const norm = (s) => String(s ?? '').toLowerCase().replace(/[^\p{L}\p{N}.+]+/gu, ' ').trim();
+  const name = norm(label);
+  const g = norm(goal);
+  if (name.length < 3 || !g) return null;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(?:^| )${esc} (\\S*\\d\\S*(?: (?:gb|tb|mp|hz|ghz|inch|cm|mm|kg|l|ml|ram|pro|max|plus|ultra))?)(?= |$)`, 'gu');
+  const hit = re.exec(g);
+  if (!hit) return null;
+  if (new RegExp(`(?:^| )${esc}(?= |$)(?! \\S*\\d)`, 'u').test(g)) return null;
+  return `${name} ${hit[1]}`;
 }

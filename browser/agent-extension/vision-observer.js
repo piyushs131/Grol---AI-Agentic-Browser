@@ -1,12 +1,8 @@
-// What the agent sees of a page: the marked screenshot plus the page's own
-// text, and whether the page is one the agent must hand to the user.
 
 import { SOM_SCRIPT } from './page-scripts.js';
 import { drawMarks } from './mark-render.js';
 import { pageFlags } from './vision-helpers.js';
 
-// Sliders are not marks (not clickable/typable); without this the model
-// never learns one exists and types the price into the search box.
 const SLIDERS_JS = `
   Array.prototype.slice.call(document.querySelectorAll('input[type=range]'))
     .filter(function (r) { var b = r.getBoundingClientRect(); return b.width > 0 || (r.parentElement && r.parentElement.getBoundingClientRect().width > 0); })
@@ -26,9 +22,6 @@ const PASSWORD_JS = `
   })()
 `;
 
-// tel / OTP fields count: Indian commerce gates checkout behind a mobile
-// number + OTP, never a password. A sign-in title on a near-empty page is
-// Google's field-less "Sign in" interstitial.
 const SIGN_IN_JS = `
   (function () {
     var title = document.title || '';
@@ -62,14 +55,9 @@ export class PageObserver {
     this.logger = logger;
   }
 
-  // analyze() runs before mark() so the page text is read without our
-  // additions. Marks are drawn onto a copy of the screenshot, never the page.
-  // Null when the page cannot be observed at all.
   async observe() {
     const target = this.target;
     try {
-      // Sites that open results in a new tab would otherwise leave the agent
-      // driving a tab nobody is looking at.
       await target.ensureDisplayed();
       await target.executeJS(SOM_SCRIPT, { timeout: 6000 });
 
@@ -118,8 +106,6 @@ export class PageObserver {
     }
   }
 
-  // The agent never types credentials or payment details: detect those
-  // screens and hand control to the user.
   async detectSensitiveScreen(url) {
     const u = String(url || '').toLowerCase();
     const isPay = PAY_URL_PARTS.some((p) => u.includes(p));

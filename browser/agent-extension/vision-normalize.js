@@ -1,9 +1,4 @@
-// Turns whatever JSON the model replied with into one well-formed action.
-// Forgiving about the reply's SHAPE (every wrapper handled here was seen in a
-// live run), strict about its MEANING.
 
-// The action may be named by any of these keys, and its parameters may be
-// siblings or nested one level down under any of these.
 const NAME_KEYS = ['action', 'action_type', 'actionType', 'type', 'name', 'tool', 'command', 'operation'];
 const PARAM_KEYS = ['params', 'parameters', 'args', 'arguments', 'input', 'value', 'payload', 'options', 'details'];
 
@@ -35,20 +30,16 @@ function num(v) {
   return undefined;
 }
 
-// Marks are the badge numbers on the screenshot: whole and positive.
 function markNumber(v) {
   const n = num(v);
   return Number.isInteger(n) && n >= 0 ? n : undefined;
 }
 
-// A pixel in the screenshot; negative means off-screen.
 function coord(v) {
   const n = num(v);
   return n !== undefined && n >= 0 ? n : undefined;
 }
 
-// Only web pages: a model steered by page text must not open file:, data:,
-// javascript: or chrome: URLs. A bare "example.com/x" gets https://.
 export function webUrl(value) {
   const s = String(value ?? '').trim();
   if (!s || /\s/.test(s)) return '';
@@ -86,7 +77,6 @@ function findActionName(raw) {
     for (const nk of NAME_KEYS) {
       const v = node[nk];
       if (typeof v === 'string' && v.trim()) { name = v; break; }
-      // {"action": {"type": "click", "mark": 9}} - the nested object IS the action.
       if (v && typeof v === 'object' && !Array.isArray(v)) {
         params = { ...params, ...v };
         node = v;
@@ -122,15 +112,35 @@ export function readObservation(raw) {
   };
 }
 
+const KNOWN_ACTIONS = new Set(['click', 'click_text', 'type', 'select_option', 'set_range', 'scroll', 'navigate',
+  'back', 'key', 'find_text', 'wait', 'remember', 'open_tab', 'switch_tab', 'done', 'ask_user']);
+
+const GUESSES = [
+  [/scroll/, 'scroll'],
+  [/(^|_)(type|input|enter_text|fill|write)|^search|search_(bar|box|field)|into_/, 'type'],
+  [/navigat|go_?to|open_(url|page|site|website)|visit|load_url/, 'navigate'],
+  [/new_tab/, 'open_tab'],
+  [/(^|_)back($|_)/, 'back'],
+  [/click|press_(button|link)|tap|choose|select_(link|button|item|result)/, 'click'],
+  [/select|dropdown|option/, 'select_option'],
+  [/press|key/, 'key'],
+  [/wait|sleep|pause/, 'wait'],
+  [/remember|note|save_fact/, 'remember'],
+  [/(^|_)(done|finish|complete|answer)/, 'done']
+];
+
+export function guessAction(name) {
+  const n = String(name || '').toLowerCase();
+  const hit = GUESSES.find(([re]) => re.test(n));
+  return hit ? hit[1] : null;
+}
+
 export function normalizeAction(raw) {
   if (Array.isArray(raw)) raw = raw[0];
   if (!raw || typeof raw !== 'object') throw new Error('AI response was not an object');
 
   const observation = readObservation(raw);
 
-  // { actions: [...] } / { steps: [...] } - take the first, ignore the rest.
-  // Only when the top level names no action itself: a "plan" list next to an
-  // "action" is commentary, not the action.
   if (!findActionName(raw).name) {
     for (const listKey of ['actions', 'steps', 'plan']) {
       const first = Array.isArray(raw[listKey]) ? raw[listKey][0] : undefined;
@@ -148,7 +158,6 @@ export function normalizeAction(raw) {
   const { name, params } = findActionName(raw);
   if (!name) throw new Error('AI response has no action name: ' + JSON.stringify(raw).slice(0, 160));
 
-  // Sibling fields win over nested ones, but nested fill the gaps.
   const src = { ...params, ...raw };
 
   const action = {
@@ -160,6 +169,14 @@ export function normalizeAction(raw) {
   };
 
   if (ALIAS[action.action]) action.action = ALIAS[action.action];
+  if (!KNOWN_ACTIONS.has(action.action)) {
+    const invented = action.action;
+    action.action = guessAction(invented) || invented;
+    const word = /(enter|escape|tab|backspace)/.exec(invented);
+    if (action.action === 'key' && word && src.key === undefined) src.key = word[1][0].toUpperCase() + word[1].slice(1);
+    const dir = /(up|down|left|right)/.exec(invented);
+    if (action.action === 'scroll' && dir && src.direction === undefined) src.direction = dir[1];
+  }
 
   const mark = () => markNumber(src.mark ?? src.index ?? src.element ?? src.element_id ?? src.elementId ?? src.id ?? src.number);
 
@@ -168,8 +185,6 @@ export function normalizeAction(raw) {
       action.mark = mark();
       action.x = coord(src.x ?? src.left);
       action.y = coord(src.y ?? src.top);
-      // A click that names a label as well as (or instead of) a number is
-      // better served by the label - it cannot be a mis-read badge.
       action.text = str(src.text, src.label, src.element_text, src.target);
       if (action.mark === undefined && (action.x === undefined || action.y === undefined)) {
         if (action.text) { action.action = 'click_text'; break; }
@@ -199,7 +214,6 @@ export function normalizeAction(raw) {
     case 'set_range': {
       action.mark = mark();
       const rawV = src.value ?? src.to ?? src.amount ?? src.price ?? src.text;
-      // "₹5,000" and "5000" both mean 5000.
       const v = num(rawV) ?? num(String(rawV ?? '').replace(/[^0-9.]/g, ''));
       if (v === undefined || v === null || !isFinite(v)) throw new Error('set_range needs a numeric value');
       action.value = v;
@@ -211,6 +225,10 @@ export function normalizeAction(raw) {
         .includes(String(src.direction).toLowerCase())
         ? String(src.direction).toLowerCase() : 'down';
       action.amount = Math.min(2000, Math.max(120, num(src.amount ?? src.pixels ?? src.distance) ?? 600));
+      {
+        const mark = num(src.mark ?? src.within ?? src.panel);
+        if (mark !== undefined && Number.isInteger(mark) && mark > 0) action.mark = mark;
+      }
       break;
     case 'navigate':
       action.url = webUrl(str(src.url, src.href, src.link, src.address));

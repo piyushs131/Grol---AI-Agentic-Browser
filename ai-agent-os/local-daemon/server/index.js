@@ -1,5 +1,3 @@
-// AgentOS daemon: exposes the OS capability modules to the Grol extension over
-// HTTP on loopback (/health, /capabilities, /execute, /confirm, /history).
 
 const express = require('express');
 const http = require('http');
@@ -27,7 +25,6 @@ const DEFAULT_DATA_DIR = path.join(__dirname, '..', '..', '.agent-os-data');
 const EXTENSION_ORIGIN = 'chrome-extension://ebhlbffbihmgefabpeglnhjadadhcmjc';
 const LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/i;
 const MAX_BODY = '50mb';
-// In-flight requests get this long to finish before stop() cuts them off.
 const SHUTDOWN_GRACE_MS = 2000;
 const IDLE_SWEEP_MS = 50;
 
@@ -40,9 +37,6 @@ const DEFAULT_MODULES = [
   ['scheduler', () => new SchedulerModule()]
 ];
 
-// A browser attaches an Origin header to every cross-site POST, so without
-// this any website the user visits could POST /execute (and /confirm its own
-// shell command). Requests with no Origin come from local programs, not pages.
 function createOriginCheck(extraOrigins = process.env.GROL_ALLOWED_ORIGINS) {
   const allowed = new Set([
     EXTENSION_ORIGIN,
@@ -51,8 +45,6 @@ function createOriginCheck(extraOrigins = process.env.GROL_ALLOWED_ORIGINS) {
   return (origin) => origin === undefined || allowed.has(origin);
 }
 
-// DNS rebinding: a hostile domain can resolve to 127.0.0.1 and then look
-// same-origin to itself. Only answer requests addressed to loopback names.
 const isAllowedHost = (host) => LOOPBACK_HOST.test(String(host || ''));
 
 function parsePort(value) {
@@ -72,10 +64,7 @@ function requestGuard(isAllowedOrigin, logger) {
   };
 }
 
-// Body-parser and unexpected failures would otherwise get Express's HTML page,
-// which includes the stack trace outside production.
 function jsonErrorHandler(logger) {
-  // eslint-disable-next-line no-unused-vars
   return (err, req, res, next) => {
     const status = Number(err.status || err.statusCode) || 500;
     if (status >= 500) logger.error(`Unhandled error on ${req.method} ${req.path}: ${err.message}`);
@@ -86,8 +75,6 @@ function jsonErrorHandler(logger) {
   };
 }
 
-// Keep-alive sockets that go idle after close() would otherwise hold it open
-// until the grace period, so idle ones are swept as they appear.
 async function closeServer(server) {
   if (!server?.listening) return;
   const closed = new Promise((resolve) => server.close(() => resolve()));
@@ -133,7 +120,6 @@ class AgentOSDaemon {
     }
   }
 
-  // Safe to call at any time, any number of times, even concurrently.
   async stop() {
     if (this._starting) await this._starting.catch(() => {});
     return this._teardownOnce();
@@ -186,7 +172,6 @@ class AgentOSDaemon {
     }
   }
 
-  // The extension only knows this port, so a busy port is fatal rather than moved.
   _listen() {
     return new Promise((resolve, reject) => {
       const onError = (err) => {
@@ -208,11 +193,9 @@ class AgentOSDaemon {
     const app = express();
     app.disable('x-powered-by');
     app.use(requestGuard(createOriginCheck(), this.logger));
-    // Only origins that passed the guard reach this, so reflecting them is safe.
     app.use(cors({ origin: true, methods: ['GET', 'POST'], credentials: false }));
-    // Screenshots and file contents travel in request/response bodies.
     app.use(express.json({ limit: MAX_BODY }));
-    app.use('/', createRouter(this.executor, this.registry, this.memoryStore));
+    app.use('/', createRouter(this.executor, this.registry, this.memoryStore, { ownPort: this.port }));
     app.use((req, res) => sendError(res, 404, `Route not found: ${req.method} ${req.path}`));
     app.use(jsonErrorHandler(this.logger));
     return app;

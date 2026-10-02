@@ -1,4 +1,3 @@
-// HTTP routes of the AgentOS daemon.
 
 const express = require('express');
 const { ActionRequest, errorMessage, isPlainObject } = require('../../shared/schemas/action-schema');
@@ -7,7 +6,6 @@ const MAX_REASON_LENGTH = 500;
 
 const sendError = (res, code, error) => res.status(code).json({ status: 'error', error, timestamp: Date.now() });
 
-// Handler failures become a JSON 500 carrying the message only, never a stack.
 const safely = (handler) => async (req, res) => {
   try {
     await handler(req, res);
@@ -30,8 +28,38 @@ function parseConfirmation(body) {
   return { id, approved, reason: reason ? reason.slice(0, MAX_REASON_LENGTH) : undefined };
 }
 
-function createRouter(executor, registry, memoryStore) {
+const LOCAL_LLM_URL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]):(\d{2,5})\/(v1|api)\//;
+const LOCAL_LLM_TIMEOUT_MS = 180000;
+
+function localLlmTarget(url, ownPort) {
+  const m = LOCAL_LLM_URL.exec(String(url || ''));
+  if (!m) return { error: 'url must be a local model API (http://localhost:<port>/v1/...)' };
+  const port = Number(m[2]);
+  if (port === Number(ownPort) || port < 1 || port > 65535) return { error: 'That port is not a model server' };
+  return { url: String(url) };
+}
+
+function createRouter(executor, registry, memoryStore, { ownPort } = {}) {
   const router = express.Router();
+
+  router.post('/llm-local', requireJsonBody, safely(async (req, res) => {
+    const { url, method = 'POST', body } = req.body;
+    const target = localLlmTarget(url, req.socket.localPort || ownPort);
+    if (target.error) return sendError(res, 400, target.error);
+    if (method !== 'GET' && method !== 'POST') return sendError(res, 400, 'method must be GET or POST');
+    let upstream;
+    try {
+      upstream = await fetch(target.url, {
+        method,
+        headers: method === 'POST' ? { 'Content-Type': 'application/json' } : {},
+        body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+        signal: AbortSignal.timeout(LOCAL_LLM_TIMEOUT_MS)
+      });
+    } catch (err) {
+      return sendError(res, 502, `Local model server not reachable: ${errorMessage(err)}`);
+    }
+    res.json({ status: upstream.status, body: await upstream.text() });
+  }));
 
   router.post('/execute', requireJsonBody, safely(async (req, res) => {
     const actionRequest = new ActionRequest(req.body);
@@ -74,4 +102,4 @@ function createRouter(executor, registry, memoryStore) {
   return router;
 }
 
-module.exports = { createRouter, sendError };
+module.exports = { createRouter, sendError, localLlmTarget };

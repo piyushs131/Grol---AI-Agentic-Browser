@@ -1,7 +1,3 @@
-// Instant, model-free matching for simple one-line OS commands ("take a
-// screenshot", "open calculator", "open google.com"). Every pattern must match
-// the WHOLE command, so "open chrome and write an email" or "open chrome to
-// check mail" is never cut short; anything unrecognised goes to the model.
 
 const APPS = ['google chrome', 'chrome', 'safari', 'firefox', 'finder', 'terminal', 'calculator', 'notes',
   'textedit', 'preview', 'mail', 'calendar', 'messages', 'music', 'photos', 'maps', 'reminders',
@@ -12,7 +8,6 @@ const APP = `(${APPS.map((a) => a.replace(/ /g, '\\s+')).join('|')})`;
 const FOLDER = '(desktop|documents|downloads|pictures)';
 const TLD = 'com|org|net|io|dev|co|in|ai|app|edu|gov|me|uk';
 
-// Words that make a command more than one step. Checked before any pattern.
 const MULTI_STEP = /\b(and|then|after|afterwards|before|also|while|until|if|when)\b|[,;&|]|\n/i;
 const POLITE = /^(?:please\s+|can\s+you\s+|could\s+you\s+|hey\s+grol,?\s+)+/i;
 
@@ -79,11 +74,9 @@ export function isSingleStep(text) {
   return !MULTI_STEP.test(text);
 }
 
-// The actions for a recognised command, or null to ask the model.
 export function matchIntent(text) {
   const input = String(text ?? '').trim().replace(POLITE, '').replace(/[.!]+$/, '').trim();
   if (!input || input.length > 200) return null;
-  // "click 10,20" is a coordinate, not two steps.
   if (!/^click\b/i.test(input) && !isSingleStep(input)) return null;
   for (const { pattern, build } of INTENTS) {
     const m = input.match(pattern);

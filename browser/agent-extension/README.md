@@ -20,7 +20,9 @@ APIs, so engine updates don't break it (tier 2 of the layering rule in
 | `os-task.js` | The worker's OS task: pause/resume/stop, confirmations, and an event log that survives a worker restart. |
 | `os-daemon.js`, `os-describe.js`, `intent-engine.js` | Helper HTTP client, activity-log labels, and the model-free path for one-line commands. |
 | `gemini-*.js` | Gemini REST client (typed errors, key sent as a header and never logged), model discovery, the retrying model ladder, JSON parsing. |
-| `settings.js` | API key storage (`chrome.storage.local`, key `ai`). |
+| `llm-providers.js` | Any LLM behind one call: Gemini, Claude (Anthropic Messages), and OpenAI-compatible APIs (OpenAI, xAI Grok, Groq, OpenRouter, DeepSeek, Mistral, Together, Ollama, LM Studio, custom). Detects the provider from the key, maps errors onto the ladder's kinds, and relays local servers that refuse extension origins through the OS helper. |
+| `adblock/` | Built-in ad blocking: a filter-list converter (EasyList syntax → declarativeNetRequest rules + element hiding), the bundled lists in `adblock/lists/` (regenerate with `browser/scripts/update-adblock-lists.mjs`; the worker also refreshes them daily), our own `domains.txt` / `exceptions.txt`, YouTube ad-slot removal and skip fallback, and Google Search sponsored-result hiding. |
+| `settings.js` | AI key, provider, base URL and model (`chrome.storage.local`, key `ai`). |
 | `sleep.js` | A sleep that ends as soon as a task is stopped. |
 | `sidepanel.*`, `newtab.*` | UI. The toolbar button opens the side panel. |
 

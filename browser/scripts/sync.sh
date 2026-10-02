@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Fetches or updates the engine checkout to the pinned revision. Safe to re-run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source config/engine.conf

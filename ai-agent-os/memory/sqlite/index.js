@@ -1,6 +1,3 @@
-// Action log backed by SQLite (better-sqlite3), with a bounded in-memory
-// fallback when the native module is missing, was built for a different Node
-// ABI, or the database file cannot be opened.
 
 const path = require('path');
 const fs = require('fs');
@@ -10,7 +7,6 @@ let Database = null;
 try {
   Database = require('better-sqlite3');
 } catch {
-  // Fall back to memory below.
 }
 
 const FALLBACK_MAX = 10000;
@@ -43,7 +39,6 @@ const toInt = (value, fallback) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-// SQLite treats a negative LIMIT as "no limit", so pages are always clamped.
 function clampPage(limit, offset) {
   return {
     limit: Math.min(Math.max(toInt(limit, DEFAULT_HISTORY_PAGE), 1), MAX_HISTORY_PAGE),
@@ -51,7 +46,6 @@ function clampPage(limit, offset) {
   };
 }
 
-// Every named parameter must be bound, so absent fields become explicit nulls.
 function toRow(entry) {
   return {
     task_id: String(entry.task_id),

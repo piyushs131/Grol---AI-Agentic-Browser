@@ -1,5 +1,3 @@
-// Gemini client, model discovery, the model ladder and the browser agent's
-// planner (prompt building and reply normalisation). No network: fetch is mocked.
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -19,7 +17,6 @@ const { buildVisionMessage, priceLimit } = await import(EXT + 'vision-prompts.js
 const KEY = 'AIzaSyTESTKEY0123456789abcdefghijklm';
 const realFetch = globalThis.fetch;
 
-// ---- fetch mocking ---------------------------------------------------------
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const answer = (text) => json({ candidates: [{ content: { parts: [{ text }] }, finishReason: 'STOP' }] });
@@ -45,7 +42,6 @@ const LADDER = ['models/gemini-3.6-flash', 'models/gemini-3-flash-preview', 'mod
 
 afterEach(() => { globalThis.fetch = realFetch; resetGeminiLadder(); });
 
-// ---- gemini-json -----------------------------------------------------------
 
 describe('parseModelJSON', () => {
   const cases = [
@@ -77,7 +73,6 @@ describe('parseModelJSON', () => {
   });
 });
 
-// ---- gemini-fetch-client ---------------------------------------------------
 
 describe('generateContent', () => {
   test('sends the key in a header, never in the URL, and returns the text', async () => {
@@ -185,7 +180,7 @@ describe('generateContent', () => {
   const emptyCases = [
     ['prompt blocked', { promptFeedback: { blockReason: 'SAFETY' } }, 'blocked'],
     ['finish SAFETY', { candidates: [{ finishReason: 'SAFETY' }] }, 'blocked'],
-    ['finish RECITATION', { candidates: [{ content: { parts: [] }, finishReason: 'RECITATION' }] }, 'blocked'],
+    ['finish RECITATION', { candidates: [{ content: { parts: [] }, finishReason: 'RECITATION' }] }, 'recitation'],
     ['MAX_TOKENS with no text', { candidates: [{ content: { parts: [{ text: '' }] }, finishReason: 'MAX_TOKENS' }] }, 'empty'],
     ['no candidates', {}, 'empty'],
     ['whitespace only', { candidates: [{ content: { parts: [{ text: '  \n' }] } }] }, 'empty']
@@ -215,7 +210,6 @@ describe('generateContent', () => {
   });
 });
 
-// ---- gemini-models ---------------------------------------------------------
 
 describe('geminiLadder (model discovery)', () => {
   beforeEach(() => resetGeminiLadder());
@@ -276,12 +270,10 @@ describe('geminiLadder (model discovery)', () => {
   });
 });
 
-// ---- GeminiLadder ----------------------------------------------------------
 
 describe('GeminiLadder', () => {
   beforeEach(() => resetGeminiLadder());
 
-  // byModel: { 'gemini-3.6-flash': () => Response, ... }; unlisted models answer "ok".
   function gemini(byModel = {}) {
     mockFetch(({ url }) => {
       if (/\/models\?/.test(url)) return json(MODEL_LIST);
@@ -328,7 +320,7 @@ describe('GeminiLadder', () => {
       throw new TypeError('Failed to fetch');
     });
     await assert.rejects(new GeminiLadder({ retryDelayMs: 1 }).ask(KEY, []), (e) => e.message === NETWORK_DOWN);
-    assert.equal(generateCalls().length, 6);      // 3 attempts x 2 models
+    assert.equal(generateCalls().length, 6);
   });
 
   test('a timeout moves to the next model instead of retrying in place', async () => {
@@ -340,7 +332,7 @@ describe('GeminiLadder', () => {
   test('when every model is cooling down it says so', async () => {
     gemini(Object.fromEntries(LADDER.map((m) => [m.slice(7), () => googleError(503, 'overloaded')])));
     const ladder = new GeminiLadder();
-    await assert.rejects(ladder.ask(KEY, []), /Every Gemini model failed/);
+    await assert.rejects(ladder.ask(KEY, []), /Every Google Gemini model failed/);
     await assert.rejects(ladder.ask(KEY, []), /out of quota or overloaded.*Try again in \d+s/);
     assert.equal(generateCalls().length, LADDER.length);
   });
@@ -401,7 +393,6 @@ describe('GeminiLadder', () => {
   });
 });
 
-// ---- VisionPlanner ---------------------------------------------------------
 
 describe('VisionPlanner', () => {
   const fakeLadder = (...replies) => {
@@ -423,7 +414,7 @@ describe('VisionPlanner', () => {
   });
 
   test('key problems are reported before any model call', async () => {
-    for (const [key, re] of [['', /Add a Gemini API key/], ['   ', /Add a Gemini API key/], ['has spaces in it but long enough', /does not look like/], ['short', /does not look like/]]) {
+    for (const [key, re] of [['', /Add an AI API key/], ['   ', /Add an AI API key/], ['has spaces in it but long enough', /does not look like/], ['short', /does not look like/]]) {
       const ladder = fakeLadder('{}');
       await assert.rejects(planner(ladder, key).decide({ goal: 'g' }), re);
       assert.equal(ladder.asked.length, 0);
@@ -477,6 +468,11 @@ describe('normalizeAction', () => {
     ['set_range with currency', { action: 'set_range', value: '₹5,000', bound: 'maximum' }, { value: 5000, bound: 'max' }],
     ['set_range min', { action: 'slider', to: 200, which: 'lower' }, { action: 'set_range', value: 200, bound: 'min' }],
     ['scroll clamps', { action: 'scroll', amount: 99999 }, { direction: 'down', amount: 2000 }],
+    ['invented name: type_into_search_bar', { action: 'type_into_search_bar', text: 'India' }, { action: 'type', text: 'India' }],
+    ['invented name: go_to_url', { action: 'go_to_url', url: 'https://example.com' }, { action: 'navigate' }],
+    ['invented name: press_enter carries the key', { action: 'press_enter' }, { action: 'key', key: 'Enter' }],
+    ['invented name: scroll_up carries the direction', { action: 'scroll_up' }, { action: 'scroll', direction: 'up' }],
+    ['scroll keeps the panel mark', { action: 'scroll', direction: 'down', mark: '7' }, { direction: 'down', amount: 600, mark: 7 }],
     ['wait in seconds', { action: 'wait', seconds: 3 }, { ms: 3000 }],
     ['wait clamps', { action: 'sleep', ms: 60000 }, { action: 'wait', ms: 8000 }],
     ['navigate bare domain', { action: 'goto', url: 'mail.google.com' }, { action: 'navigate', url: 'https://mail.google.com/' }],
@@ -564,7 +560,6 @@ describe('prompt building', () => {
   });
 });
 
-// ---- optional live check ---------------------------------------------------
 
 function findApiKey(node) {
   if (!node || typeof node !== 'object') return '';

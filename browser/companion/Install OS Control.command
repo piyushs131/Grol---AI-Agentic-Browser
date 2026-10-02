@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Installs the Grol OS Control helper (double-click). Everything it needs, including
-# node, ships beside this file. Remove it with:  "Install OS Control.command" --remove
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$HERE/.os-control-helper"
@@ -23,10 +21,8 @@ fi
 
 say "▶ Installing the Grol OS Control helper…"
 mkdir -p "$DEST/logs" "$HOME/Library/LaunchAgents"
-# macOS permissions are granted to this exact bin/node, so never replace it.
 rsync -a --exclude logs --exclude '.agent-os-data' \
   $( [ -x "$DEST/bin/node" ] && echo "--exclude bin/node" ) "$SRC/" "$DEST/"
-# Files from a downloaded disk image are quarantined; launchd would refuse them.
 xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
 
 NODE="$DEST/bin/node"

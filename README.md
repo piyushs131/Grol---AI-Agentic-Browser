@@ -19,6 +19,10 @@ for you and, if you allow it, use the apps on your Mac.
   payments, Grol pauses and asks you to take over.
 - **Bring your own model key.** Uses Google Gemini with your own API key. If a
   model is busy or out of quota, Grol moves to the next one.
+- **Built-in ad blocking.** Ads and trackers are blocked on every site using
+  EasyList, EasyPrivacy, EasyList India and Peter Lowe's list (refreshed daily),
+  including YouTube video ads and sponsored results on Google Search. Nothing to
+  install.
 - **A full browser.** Your usual sites, extensions and Google sign-in all work,
   with vertical tabs on by default.
 

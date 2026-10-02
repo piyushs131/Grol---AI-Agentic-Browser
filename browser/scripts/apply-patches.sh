@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Applies browser/patches/* to a clean engine checkout in series order, so local
-# experiments in the checkout never leak into a release.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source config/engine.conf
@@ -24,3 +22,4 @@ done < patches/series
 
 echo "  ✓ $applied patch(es) applied"
 python3 scripts/brand-strings.py "$SRC" "$UPSTREAM_NAME" "$PRODUCT_NAME"
+scripts/brand-logos.sh "$SRC"

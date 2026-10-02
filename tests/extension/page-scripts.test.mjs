@@ -1,7 +1,3 @@
-// Runs the injected page scripts (SOM_SCRIPT, CURSOR_SCRIPT) in a real
-// headless Chrome. The extension's own CdpPageTarget drives it through a
-// chrome.debugger shim over the DevTools WebSocket, so scripts are injected
-// exactly as the agent injects them. Skipped when no Chrome is installed.
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
@@ -26,7 +22,6 @@ function findChrome() {
 const CHROME = findChrome();
 const skip = CHROME ? false : 'Google Chrome not found';
 
-// ------------------------------------------------------------ test pages
 
 const PAGES = {
   '/controls': `<!doctype html><html><head><title>Controls</title><style>
@@ -118,7 +113,6 @@ function hugePage(n) {
   return `<!doctype html><title>Huge</title><body>${rows.join('')}</body>`;
 }
 
-// --------------------------------------------------------- browser harness
 
 let proc, profile, server, origin, ws;
 let target, observer, executor;
@@ -148,8 +142,6 @@ async function launch() {
       const m = /DevTools listening on ws:\/\/[^:]+:(\d+)\//.exec(buf);
       if (m) {
         clearTimeout(timer);
-        // Chrome's helper processes inherit this pipe; holding it open would
-        // keep the test process alive until they exit.
         proc.stderr.destroy();
         resolve(Number(m[1]));
       }
@@ -252,7 +244,6 @@ describe('page scripts in a real browser', { skip }, () => {
     try { ws && ws.close(); } catch (_) {}
     if (proc && proc.exitCode === null) {
       const exited = new Promise((r) => proc.once('exit', r));
-      // The whole process group, so no renderer or GPU helper outlives the test.
       try { process.kill(-proc.pid, 'SIGKILL'); } catch (_) { proc.kill('SIGKILL'); }
       await exited;
     }
@@ -334,7 +325,6 @@ describe('page scripts in a real browser', { skip }, () => {
       assert.ok(inside(save, await rectOf('#btn')));
       await target.click(save.x, save.y);
       assert.deepEqual(await js('hits'), ['btn']);
-      // A model reading the image clicks in image pixels: double the CSS point.
       const point = await executor.resolveTarget({ x: save.x * 2, y: save.y * 2 }, { shot, marks });
       assert.deepEqual([point.x, point.y], [save.x, save.y]);
     } finally {

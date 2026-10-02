@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Brands and signs a built engine app bundle as Grol:  scripts/brand-app.sh <App.app>
-# Signs with GROL_SIGN_ID (a Developer ID) if set, otherwise ad-hoc. A self-signed
-# certificate is avoided on purpose: trusting one would let anyone with its key sign
-# code this Mac trusts.
 set -euo pipefail
 APP="${1:?usage: brand-app.sh <App.app>}"
 BROWSER="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,8 +8,6 @@ set_plist() { /usr/libexec/PlistBuddy -c "Set :$1 $2" "$PL" 2>/dev/null || /usr/
 set_plist CFBundleName Grol
 set_plist CFBundleDisplayName Grol
 
-# Icon: an .icns from the Grol ring. With CFBundleIconName set, macOS takes the
-# upstream icon from Assets.car instead, so drop it.
 WORK="$(mktemp -d)"
 ICONSET="$WORK/grol.iconset"; mkdir -p "$ICONSET"
 qlmanage -t -s 1024 -o "$WORK" "$BROWSER/agent-extension/icon-tile.svg" >/dev/null 2>&1 || true
@@ -37,6 +31,5 @@ else
 fi
 codesign --verify --deep "$APP"
 
-# Make Finder and the Dock pick up the new name and icon now, not after a reboot.
 touch "$APP"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" >/dev/null 2>&1 || true

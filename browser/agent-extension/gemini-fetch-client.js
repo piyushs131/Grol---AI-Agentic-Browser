@@ -1,14 +1,8 @@
-// Minimal Gemini REST client. Every failure is a GeminiError whose `kind` says
-// what went wrong, so callers decide on retries without parsing text. Messages
-// still carry the HTTP status for logs. The key travels in a header, never in
-// the URL, and is scrubbed from anything that ends up in an error message.
 
 export const API_ROOT = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_TIMEOUT_MS = 60000;
-const BLOCKING_FINISH = new Set(['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY']);
+const BLOCKING_FINISH = new Set(['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY']);
 
-// kind: auth | quota | overloaded | retired | bad-request | server | timeout |
-//       network | aborted | blocked | empty
 export class GeminiError extends Error {
   constructor(kind, message, { status = 0, retryAfterMs = 0, perDay = false } = {}) {
     super(message);
@@ -30,7 +24,6 @@ export function redactSecrets(text, apiKey = '') {
     .replace(/\bAQ\.[0-9A-Za-z_.-]{20,}/g, '***');
 }
 
-// Google's error body: { error: { code, message, status, details: [...] } }.
 function readErrorBody(text) {
   try {
     const e = JSON.parse(text).error || {};
@@ -66,8 +59,6 @@ export function classifyHttpError(status, bodyText, apiKey = '') {
   return new GeminiError('bad-request', head, { status });
 }
 
-// One request with a timeout, an optional caller signal, and errors mapped to
-// GeminiError. Resolves to the parsed JSON body.
 async function request(apiKey, path, { method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS, signal, label = path } = {}) {
   const key = String(apiKey || '').trim();
   if (!key) throw new GeminiError('auth', 'No Gemini API key is set. Add one in Settings.');
@@ -78,8 +69,6 @@ async function request(apiKey, path, { method = 'GET', body, timeoutMs = DEFAULT
   const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, timeoutMs);
   const onAbort = () => ctl.abort();
   signal?.addEventListener('abort', onAbort, { once: true });
-  // fetch honours the signal, but racing it too means a stalled body read or
-  // a misbehaving fetch still cannot outlive the timeout.
   const abandoned = new Promise((_, reject) => {
     ctl.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
   });
@@ -102,7 +91,6 @@ async function request(apiKey, path, { method = 'GET', body, timeoutMs = DEFAULT
     if (err instanceof GeminiError) throw err;
     if (timedOut) throw new GeminiError('timeout', `timeout: ${label} timed out after ${Math.round(timeoutMs / 1000)}s`);
     if (signal?.aborted) throw new GeminiError('aborted', 'Stopped.');
-    // Chrome says "Failed to fetch", node "fetch failed" (details in err.cause).
     const cause = err && err.cause && (err.cause.code || err.cause.message);
     throw new GeminiError('network', redactSecrets(`${err && err.message || 'network error'}${cause ? ` (${cause})` : ''}`, key));
   } finally {
@@ -113,7 +101,6 @@ async function request(apiKey, path, { method = 'GET', body, timeoutMs = DEFAULT
 
 const modelPath = (model) => (String(model || '').startsWith('models/') ? model : `models/${model}`);
 
-// Text of the first candidate, without "thought" parts.
 export function candidateText(data) {
   const cand = (data && Array.isArray(data.candidates) && data.candidates[0]) || null;
   const parts = (cand && cand.content && Array.isArray(cand.content.parts)) ? cand.content.parts : [];
@@ -124,6 +111,7 @@ export function candidateText(data) {
   if (blocked) throw new GeminiError('blocked', `Gemini blocked the request (${blocked}).`);
   const finish = cand && cand.finishReason;
   if (BLOCKING_FINISH.has(finish)) throw new GeminiError('blocked', `Gemini withheld its answer (${finish}).`);
+  if (finish === 'RECITATION') throw new GeminiError('recitation', 'Gemini withheld its answer (RECITATION).');
   if (finish === 'MAX_TOKENS') throw new GeminiError('empty', 'Gemini ran out of output tokens before answering.');
   throw new GeminiError('empty', `Gemini returned an empty answer${finish ? ` (${finish})` : ''}.`);
 }

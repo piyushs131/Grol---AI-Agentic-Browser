@@ -1,0 +1,23 @@
+diff --git a/components/os_crypt/common/keychain_password_mac.mm b/components/os_crypt/common/keychain_password_mac.mm
+index 212b930952..7a46c61500 100644
+--- a/components/os_crypt/common/keychain_password_mac.mm
++++ b/components/os_crypt/common/keychain_password_mac.mm
+@@ -73,13 +73,16 @@
+ 
+ // static
+ KeychainPassword::KeychainNameType& KeychainPassword::GetServiceName() {
+-  static KeychainNameContainerType service_name(kDefaultServiceName);
++  // Grol: its own item, so it never collides with another browser's key.
++  static_cast<void>(kDefaultServiceName);
++  static KeychainNameContainerType service_name("Grol Safe Storage");
+   return *service_name;
+ }
+ 
+ // static
+ KeychainPassword::KeychainNameType& KeychainPassword::GetAccountName() {
+-  static KeychainNameContainerType account_name(kDefaultAccountName);
++  static_cast<void>(kDefaultAccountName);
++  static KeychainNameContainerType account_name("Grol");
+   return *account_name;
+ }
+ 

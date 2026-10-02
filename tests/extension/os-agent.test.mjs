@@ -1,6 +1,3 @@
-// OS Control: runOsTask against a fake helper daemon (a real HTTP server on a
-// random port) with Gemini mocked, plus the intent engine, action
-// normalisation and the service worker's task controller.
 import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -9,7 +6,7 @@ import { installChromeStub } from '../helpers/chrome-stub.mjs';
 installChromeStub();
 
 const EXT = '../../browser/agent-extension/';
-const { runOsTask, normalizeOsAction, parseOsPlan, DEFAULT_DAEMON_URL } = await import(EXT + 'os-agent.js');
+const { runOsTask, normalizeOsAction, parseOsPlan, fromGrid, gmailComposeUrl, DEFAULT_DAEMON_URL } = await import(EXT + 'os-agent.js');
 const { matchIntent } = await import(EXT + 'intent-engine.js');
 const { OsTaskController, INTERRUPTED } = await import(EXT + 'os-task.js');
 const { resetGeminiLadder } = await import(EXT + 'gemini-models.js');
@@ -17,20 +14,18 @@ const { API_ROOT } = await import(EXT + 'gemini-fetch-client.js');
 
 const KEY = 'AIzaSyTESTKEY0123456789abcdefghijklm';
 const realFetch = globalThis.fetch;
-const FAST = { settleMs: 0, roundBackoffMs: [0, 10, 10], daemonTimeoutMs: 2000, modelTimeoutMs: 2000 };
+const FAST = { settleMs: 0, roundBackoffMs: [0, 10, 10], daemonTimeoutMs: 2000, modelTimeoutMs: 2000, helperRetryMs: 5 };
 
-// ---- fake daemon -----------------------------------------------------------
 
 let server;
 let daemonUrl;
-let daemon;          // per-test behaviour and recorded calls
+let daemon;
 
 function resetDaemon() {
   daemon = {
     executed: [],
     confirms: [],
     permissions: { accessibility: true, screenRecording: true, binary: '/x/node' },
-    // (module, action, parameters, req, res) => response object | undefined for the default
     handle: () => undefined
   };
 }
@@ -75,10 +70,11 @@ before(async () => {
 
 after(() => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }));
 
-// ---- fake Gemini -----------------------------------------------------------
 
 let geminiRequests;
-let geminiReply;     // ({ n, prompt }) => Response | Promise<Response>
+let verifyRequests;
+let verdictReply;
+let geminiReply;
 
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const plan = (obj) => jsonResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] });
@@ -88,6 +84,8 @@ beforeEach(() => {
   resetDaemon();
   resetGeminiLadder();
   geminiRequests = [];
+  verifyRequests = [];
+  verdictReply = () => plan({ requirements: [], complete: true, evidence: 'visible on screen' });
   geminiReply = () => plan({ done: true, actions: [], result: 'nothing to do' });
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
@@ -97,14 +95,19 @@ beforeEach(() => {
         .map((n) => ({ name: `models/${n}`, supportedGenerationMethods: ['generateContent'] })) });
     }
     const body = JSON.parse(init.body);
-    const req = { n: geminiRequests.length, url: u, prompt: body.contents[0].parts[0].text, body };
+    const prompt = body.contents[0].parts[0].text;
+    if (prompt.startsWith('You are auditing another agent')) {
+      const check = { n: verifyRequests.length, prompt, body };
+      verifyRequests.push(check);
+      return verdictReply(check);
+    }
+    const req = { n: geminiRequests.length, url: u, prompt, body };
     geminiRequests.push(req);
     return geminiReply(req);
   };
 });
 afterEach(() => { globalThis.fetch = realFetch; });
 
-// Replies in order; the last one repeats.
 const replies = (...list) => ({ n }) => plan(list[Math.min(n, list.length - 1)]);
 
 function run(goal, opts = {}) {
@@ -119,7 +122,6 @@ function run(goal, opts = {}) {
 }
 const executed = (action) => daemon.executed.filter((c) => c.action === action);
 
-// ---- runOsTask ---------------------------------------------------------------
 
 describe('runOsTask', () => {
   test('production daemon URL is unchanged', () => assert.equal(DEFAULT_DAEMON_URL, 'http://127.0.0.1:7777'));
@@ -179,20 +181,21 @@ describe('runOsTask', () => {
     geminiReply = busy;
     let stop = false;
     let stoppedAt = 0;
+    const watcher = setInterval(() => {
+      if (geminiRequests.length >= 2 && !stop) setTimeout(() => { stop = true; stoppedAt = Date.now(); }, 30);
+    }, 10);
     const { out } = run('do a multi step thing', {
       config: { ...FAST, roundBackoffMs: [0, 20000, 20000] },
-      isAborted: () => stop,
-      emit: (tag, text) => {
-        if (/retrying in 20s/.test(text) && !stop) setTimeout(() => { stop = true; stoppedAt = Date.now(); }, 30);
-      }
+      isAborted: () => stop
     });
+    out.finally(() => clearInterval(watcher));
     assert.deepEqual(await out, { success: false, result: 'Stopped.' });
     assert.ok(stoppedAt > 0, 'backoff was reached');
     assert.ok(Date.now() - stoppedAt < 1000, `took ${Date.now() - stoppedAt}ms after stop`);
   });
 
   test('an abort signal cancels a slow model request', async () => {
-    geminiReply = ({ body }) => new Promise(() => {});      // never answers
+    geminiReply = ({ body }) => new Promise(() => {});
     const ctl = new AbortController();
     const { out } = run('do a multi step thing', { signal: ctl.signal, config: { ...FAST, modelTimeoutMs: 60000 } });
     setTimeout(() => ctl.abort(), 100);
@@ -227,6 +230,33 @@ describe('runOsTask', () => {
     const { out } = run('anything at all', { daemonUrl: 'http://127.0.0.1:9' });
     assert.match((await out).result, /OS Control helper is not running/);
     assert.equal(geminiRequests.length, 0);
+  });
+
+  test('a helper that is slow right after the browser starts is waited for, not reported missing', async () => {
+    const { DaemonClient } = await import(EXT + 'os-daemon.js');
+    const realProbe = DaemonClient.prototype.probe;
+    let calls = 0;
+    DaemonClient.prototype.probe = async function () { calls++; return calls >= 3 ? realProbe.call(this) : 'slow'; };
+    try {
+      geminiReply = replies({ actions: [], done: true, result: 'ok' });
+      const r = await run('open notes and write hello').out;
+      assert.ok(calls >= 3);
+      assert.doesNotMatch(r.result, /helper/);
+    } finally {
+      DaemonClient.prototype.probe = realProbe;
+    }
+  });
+
+  test('a helper that stays unreachable without refusing points at the keychain prompt', async () => {
+    const { DaemonClient } = await import(EXT + 'os-daemon.js');
+    const realProbe = DaemonClient.prototype.probe;
+    DaemonClient.prototype.probe = async () => 'slow';
+    try {
+      const r = await run('open notes and write hello').out;
+      assert.match(r.result, /running but the browser can't reach it.*Always Allow/);
+    } finally {
+      DaemonClient.prototype.probe = realProbe;
+    }
   });
 
   test('helper dying mid-task is reported, not retried blind', async () => {
@@ -277,10 +307,9 @@ describe('runOsTask', () => {
   test('every model busy gives a clear message after the rounds', async () => {
     geminiReply = busy;
     const { events, out } = run('do a multi step thing');
-    assert.match((await out).result, /Gemini is busy right now — every model failed/);
-    assert.equal(geminiRequests.length, 2 * 3);   // 2 models x 3 rounds
-    assert.ok(events.some((e) => /Model busy/.test(e.text)));
-    assert.ok(events.some((e) => /retrying in/.test(e.text)));
+    assert.match((await out).result, /AI model is busy right now — every model failed/);
+    assert.equal(geminiRequests.length, 2 * 3);
+    assert.ok(!events.some((e) => /busy|retrying in/i.test(e.text)), 'model switching stays out of the activity log');
   });
 
   test('a rejected API key fails fast with a clear message', async () => {
@@ -293,7 +322,7 @@ describe('runOsTask', () => {
   });
 
   test('no API key: multi-step goals need one, simple ones do not', async () => {
-    assert.match((await run('open notes and write', { apiKey: '  ' }).out).result, /Add a Gemini API key/);
+    assert.match((await run('open notes and write', { apiKey: '  ' }).out).result, /Add an AI API key/);
     assert.deepEqual(await run('take a screenshot', { apiKey: '' }).out, { success: true, result: 'Done.' });
   });
 
@@ -328,8 +357,136 @@ describe('runOsTask', () => {
     daemon.handle = (m, a) => (a === 'pressKey' ? { status: 'error', error: 'no such key' } : undefined);
     geminiReply = replies({ actions: [{ action: 'pressKey', parameters: { key: 'f99' } }] });
     const { out } = run('press it then go');
-    assert.match((await out).result, /^Kept failing: .*no such key/);
+    assert.match((await out).result, /^Kept failing: /);
     assert.equal(geminiRequests.length, 4);
+    assert.equal(executed('pressKey').length, 2);
+    assert.match(geminiRequests[1].prompt, /no such key/);
+  });
+
+  test('the same missed click is refused after two tries and the model told to change route', async () => {
+    geminiReply = replies(
+      { actions: [{ action: 'clickMouse', parameters: { x: 100, y: 200 } }] },
+      { actions: [{ action: 'clickMouse', parameters: { x: 103, y: 198 } }] },
+      { actions: [{ action: 'clickMouse', parameters: { x: 101, y: 201 } }] },
+      { actions: [], done: true, result: 'ok' }
+    );
+    const { out } = run('click desktop in sidebar');
+    assert.equal((await out).success, true);
+    assert.equal(executed('clickMouse').length, 2);
+    assert.match(geminiRequests[3].prompt, /REPEATED: .*NOT working/);
+  });
+
+  test('a GUI turn that leaves the screen identical is reported as having no effect', async () => {
+    geminiReply = replies(
+      { actions: [{ action: 'clickMouse', parameters: { x: 10, y: 10 } }] },
+      { actions: [], done: true, result: 'ok' }
+    );
+    await run('click it').out;
+    assert.doesNotMatch(geminiRequests[0].prompt, /SCREEN UNCHANGED: the screenshot is identical/);
+    assert.match(geminiRequests[1].prompt, /SCREEN UNCHANGED: the screenshot is identical/);
+  });
+
+  test('a command that exits non-zero is a failure, not ok', async () => {
+    daemon.handle = (m, a) => (a === 'executeCommand'
+      ? { status: 'success', result: { exitCode: 127, stderr: 'sh: code: command not found', success: false } } : undefined);
+    geminiReply = replies(
+      { actions: [{ action: 'executeCommand', parameters: { command: 'code ~/Desktop/x' } }] },
+      { actions: [], done: true, result: 'ok' }
+    );
+    await run('open x in code').out;
+    assert.match(geminiRequests[1].prompt, /-> FAILED: exit code 127: sh: code: command not found/);
+  });
+
+  test('never clicks or focuses its own browser window', async () => {
+    daemon.handle = (m, a) => (a === 'getActiveWindow' ? { status: 'success', result: { app: 'Grol', title: '' } } : undefined);
+    geminiReply = replies(
+      { actions: [{ action: 'clickMouse', parameters: { x: 10, y: 10 } }] },
+      { actions: [{ action: 'focusWindow', parameters: { title: 'Grol' } }] },
+      { actions: [], done: true, result: 'ok' }
+    );
+    await run('make a folder').out;
+    assert.equal(executed('clickMouse').length, 0);
+    assert.equal(executed('focusWindow').length, 0);
+    assert.match(geminiRequests[0].prompt, /"Grol" is YOUR OWN window/);
+    assert.match(geminiRequests[1].prompt, /REFUSED: that is your own window/);
+  });
+
+  test('a RECITATION refusal is retried with a request for original code, not fatal', async () => {
+    const recite = () => jsonResponse({ candidates: [{ content: { parts: [] }, finishReason: 'RECITATION' }] });
+    geminiReply = ({ prompt }) => (/WITHHELD by Gemini/.test(prompt)
+      ? plan({ actions: [], done: true, result: 'Made the site.' }) : recite());
+    const { events, out } = run('make a website');
+    assert.deepEqual(await out, { success: true, result: 'Made the site.' });
+    assert.ok(events.some((e) => /original code/.test(e.text)));
+  });
+
+  test('RECITATION every time ends with a clear message', async () => {
+    geminiReply = () => jsonResponse({ candidates: [{ content: { parts: [] }, finishReason: 'RECITATION' }] });
+    const { out } = run('make a website', { config: { ...FAST, recitationRetries: 1 } });
+    assert.match((await out).result, /recitation/i);
+  });
+
+  test('click coordinates are read on a 0-1000 grid and mapped to screen points', async () => {
+    geminiReply = replies(
+      { actions: [{ action: 'clickMouse', parameters: { x: 500, y: 1000 } }, { action: 'clickMouse', parameters: { x: 1200, y: 5 } }] },
+      { actions: [], done: true, result: 'ok' }
+    );
+    await run('click the middle').out;
+    assert.deepEqual(executed('clickMouse').map((c) => [c.parameters.x, c.parameters.y]), [[500, 799]]);
+    assert.deepEqual(fromGrid({ action: 'dragMouse', parameters: { fromX: 0, fromY: 0, toX: 1000, toY: 500 } }, { width: 1501, height: 901 }).parameters,
+      { fromX: 0, fromY: 0, toX: 1500, toY: 450 });
+  });
+
+  test('an email is sent through a pre-filled Gmail compose window, never typed field by field', async () => {
+    geminiReply = replies(
+      { actions: [{ module: 'agent', action: 'composeGmail', parameters: { to: 'p@example.com', subject: 'Leave request', body: 'Hi,\nMay I take leave today?\nThanks' } }] },
+      { actions: [], done: true, result: 'sent' }
+    );
+    await run('send an email to p@example.com asking for leave').out;
+    const open = executed('openApplication')[0];
+    assert.equal(open.parameters.name, 'Google Chrome');
+    const u = new URL(open.parameters.path);
+    assert.equal(u.host, 'mail.google.com');
+    assert.equal(u.searchParams.get('to'), 'p@example.com');
+    assert.equal(u.searchParams.get('su'), 'Leave request');
+    assert.equal(u.searchParams.get('body'), 'Hi,\nMay I take leave today?\nThanks');
+    assert.doesNotMatch(open.parameters.path, /\+/);
+    assert.equal(normalizeOsAction({ action: 'agent.composeGmail', parameters: { subject: 'no recipient' } }), null);
+    assert.match(gmailComposeUrl({ to: ['a@x.com', ' b@x.com'] }), /to=a%40x\.com%2Cb%40x\.com/);
+  });
+
+  test('reading a PDF uses readDocument and the model gets the text, not a preview', async () => {
+    daemon.handle = (m, a) => (a === 'readDocument'
+      ? { status: 'success', result: { path: '/x/nda.pdf', via: 'PDFKit', pages: 2, text: 'NDA between GoKiwi and Piyush. Term: 2 years. ' + 'x'.repeat(5000) } } : undefined);
+    geminiReply = replies(
+      { actions: [{ module: 'filesystem', action: 'readFile', parameters: { path: 'desktop/nda.pdf' } }] },
+      { actions: [], done: true, result: 'Summary: a 2-year NDA between GoKiwi and Piyush.' }
+    );
+    await run('summarise my gokiwi agreement').out;
+    assert.equal(executed('readFile').length, 0);
+    assert.equal(executed('readDocument').length, 1);
+    assert.match(geminiRequests[1].prompt, /\(2 pages\) TEXT:\nNDA between GoKiwi and Piyush\. Term: 2 years\./);
+    assert.ok(geminiRequests[1].prompt.includes('x'.repeat(4000)), 'far more than a 160-character preview');
+  });
+
+  test('installing software to work around a missing tool is refused unless the goal asks for it', async () => {
+    geminiReply = replies(
+      { actions: [{ action: 'executeCommand', parameters: { command: 'python3 -m pip install pypdf && python3 x.py' } }] },
+      { actions: [], done: true, result: 'ok' }
+    );
+    await run('summarise the agreement pdf').out;
+    assert.equal(executed('executeCommand').length, 0);
+    assert.match(geminiRequests[1].prompt, /REFUSED: do not install software.*readDocument/);
+  });
+
+  test('the model plan is carried into later turns', async () => {
+    geminiReply = replies(
+      { plan: ['Create folder', 'Write files', 'Open in VS Code'], actions: [{ action: 'agent.wait', parameters: { ms: 1 } }] },
+      { actions: [], done: true, result: 'ok' }
+    );
+    await run('build it').out;
+    assert.match(geminiRequests[0].prompt, /no plan yet/);
+    assert.match(geminiRequests[1].prompt, /YOUR PLAN[\s\S]*3\. Open in VS Code/);
   });
 
   test('model gives up without actions or done', async () => {
@@ -352,7 +509,6 @@ describe('runOsTask', () => {
   });
 });
 
-// ---- action normalisation and the intent engine ------------------------------
 
 describe('normalizeOsAction', () => {
   const screen = { width: 1000, height: 800 };
@@ -417,10 +573,8 @@ describe('matchIntent', () => {
   for (const text of toModel) test(`model: ${JSON.stringify(text)}`, () => assert.equal(matchIntent(text), null));
 });
 
-// ---- OsTaskController (the service worker's side) -----------------------------
 
 describe('OsTaskController', () => {
-  // A runOsTask stand-in the test drives through its hooks.
   function scripted() {
     const s = { hooks: null, finish: null, started: 0 };
     s.run = (goal, hooks) => new Promise((resolve) => { s.hooks = hooks; s.finish = resolve; s.started++; });
@@ -529,7 +683,7 @@ describe('OsTaskController', () => {
     const second = c.start('two', KEY);
     await tick();
     assert.equal(firstHooks.isAborted(), true);
-    s.finish({ success: false, result: 'Stopped.' });       // the first run exits
+    s.finish({ success: false, result: 'Stopped.' });
     const secondId = await second;
     assert.notEqual(secondId, first);
     assert.equal(c.current.id, secondId);
@@ -561,3 +715,52 @@ describe('OsTaskController', () => {
     assert.equal(b.sent.length, 0);
   });
 });
+
+describe('completion check', () => {
+  test('a done claim is only a success after an independent check sees it finished', async () => {
+    geminiReply = replies({ actions: [], done: true, result: 'Folder created' });
+    const r = await run('create a folder called X on my desktop and open it').out;
+    assert.deepEqual(r, { success: true, result: 'Folder created' });
+    assert.equal(verifyRequests.length, 1);
+    assert.match(verifyRequests[0].prompt, /GOAL:  create a folder called X/);
+    assert.ok(verifyRequests[0].body.contents[0].parts[1].inlineData, 'the check sees a screenshot');
+  });
+
+  test('a rejected claim sends the agent back with what is missing, then it finishes', async () => {
+    geminiReply = replies(
+      { actions: [], done: true, result: 'Sent' },
+      { actions: [{ action: 'typeText', parameters: { text: 'hi\n' } }] },
+      { actions: [], done: true, result: 'Sent' }
+    );
+    verdictReply = ({ n }) => plan(n === 0
+      ? { requirements: [{ need: 'message sent', met: false }], complete: false, missing: 'the message is still in the input box', next: 'press Return' }
+      : { requirements: [{ need: 'message sent', met: true }], complete: true, evidence: 'message in the chat' });
+    const r = await run('open whatsapp and send hi to rahul').out;
+    assert.equal(r.success, true);
+    assert.equal(verifyRequests.length, 2);
+    assert.ok(geminiRequests.some((g) => /REJECTED.*still in the input box.*press Return/s.test(g.prompt)));
+  });
+
+  test('repeated rejection ends as not finished, never as success', async () => {
+    geminiReply = replies({ actions: [], done: true, result: 'Done' });
+    verdictReply = () => plan({ complete: false, missing: 'the document is empty' });
+    const r = await run('open notes and write a shopping list').out;
+    assert.deepEqual(r, { success: false, result: 'Not finished: the document is empty' });
+  });
+
+  test('a check that cannot run, or an unreadable verdict, is never a success', async () => {
+    geminiReply = replies({ actions: [], done: true, result: 'Done' });
+    verdictReply = () => jsonResponse({ candidates: [{ content: { parts: [{ text: 'looks good to me' }] } }] });
+    const r = await run('open notes and write a list', { config: { ...FAST, verifyAttempts: 2, verifyRetryMs: 1 } }).out;
+    assert.equal(r.success, false);
+    assert.match(r.result, /Couldn't confirm the task was finished/);
+  });
+
+  test('a "complete" verdict with an unmet requirement is not complete', async () => {
+    geminiReply = replies({ actions: [], done: true, result: 'Done' });
+    verdictReply = () => plan({ requirements: [{ need: 'saved', met: false }], complete: true });
+    const r = await run('open notes and write a list').out;
+    assert.equal(r.success, false);
+  });
+});
+

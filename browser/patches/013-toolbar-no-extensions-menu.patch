@@ -1,0 +1,19 @@
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+index 2853c5c4c3..21cc619913 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+@@ -408,14 +408,6 @@ void ToolbarView::Init() {
+   std::unique_ptr<ExtensionsToolbarDesktop> extensions_container;
+   std::unique_ptr<ToolbarDivider> toolbar_divider;
+ 
+-  // Do not create the extensions or browser actions container if it is a guest
+-  // profile (only regular and incognito profiles host extensions).
+-  if (!browser_->GetProfile()->IsGuestSession() &&
+-      !features::IsWebUIExtensionsContainerEnabled()) {
+-    extensions_container = std::make_unique<ExtensionsToolbarDesktop>(browser_);
+-
+-    toolbar_divider = std::make_unique<ToolbarDivider>();
+-  }
+ 
+   std::unique_ptr<MediaToolbarButtonView> media_button;
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)

@@ -1,10 +1,5 @@
-// HTTP client for the local OS Control helper. Never throws: every call
-// resolves to the daemon's { status, result, error } shape, with
-// `unreachable` or `aborted` set when the request itself failed.
 
 export const DEFAULT_DAEMON_URL = 'http://127.0.0.1:7777';
-// Nothing the daemon does takes this long (openApplication waits ~15s at most),
-// so a request that does is hung.
 const DEFAULT_TIMEOUT_MS = 45000;
 
 export class DaemonClient {
@@ -35,6 +30,13 @@ export class DaemonClient {
     }
   }
 
+  async probe() {
+    const r = await this.request('/health', { timeoutMs: 5000 });
+    if (r.aborted) return 'stopped';
+    if (r.unreachable) return 'down';
+    return r.status === 'error' ? 'slow' : 'up';
+  }
+
   async isUp() {
     const r = await this.request('/health', { timeoutMs: 5000 });
     return !r.unreachable && !r.aborted && r.status !== 'error';
@@ -51,7 +53,6 @@ export class DaemonClient {
     return this.request('/confirm', { method: 'POST', body: { confirmation_id: confirmationId, approved } });
   }
 
-  // "filesystem.readFile {path} - Read a file" lines for the prompt.
   async fileActions() {
     const d = await this.request('/capabilities', { timeoutMs: 10000 });
     const fs = d && d.capabilities && d.capabilities.filesystem;

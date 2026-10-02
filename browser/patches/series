@@ -1,36 +1,12 @@
-# Patches applied to the engine source, in order.
-#
-# One file per concern, named NNN-subsystem-what.patch. Keep them small and
-# single-purpose: a 2000-line patch touching six subsystems cannot be rebased
-# when upstream moves, and rebasing is the main recurring maintenance cost.
-#
-# Prefer the least invasive layer that works:
-#   1. A GN arg or runtime flag              (no patch at all - always try first)
-#   2. A bundled component/extension          (no engine change)
-#   3. A patch                                (last resort - you own it forever)
-#
 001-gl-allow-angle-opengl-on-mac.patch
-# Grol's agent is a component extension shipped in the app bundle: not listed
-# in chrome://extensions, cannot be disabled or removed.
 002-extensions-bundle-grol-agent.patch
-# New tabs and the startup tab open the agent page instead of Google's NTP.
-003-ntp-open-grol-page.patch
-# Tabs run down the side by default (tab groups = sections with sub-tabs);
-# the tab strip menu switches back to horizontal.
 004-tabs-vertical-by-default.patch
-# Browser frame / tab strip tinted Grol violet (neutral) by default.
 005-theme-grol-violet-default.patch
-# Unnamed tab groups show "Untitled group" instead of an empty bar.
 006-tabs-label-unnamed-groups.patch
-# No "Customize" footer under the Grol home page.
 007-ntp-no-footer.patch
-# The app selects its GL backend itself (no Metal in this build), so it
-# renders correctly when opened from Finder/Dock, not only from run.sh.
 008-mac-default-gpu-flags.patch
-# Code-sign clone off until Grol ships Developer ID signed releases.
 009-mac-no-code-sign-clone.patch
-# No "Google API keys are missing" bar (Grol uses the user's Gemini key).
 010-startup-no-api-keys-infobar.patch
-# Skip the upstream welcome screen; Grol onboards the user itself.
 011-startup-skip-welcome.patch
-# (UI text branding is applied by scripts/brand-strings.py, not a patch.)
+012-mac-own-keychain-item.patch
+013-toolbar-no-extensions-menu.patch

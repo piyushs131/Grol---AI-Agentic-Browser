@@ -1,6 +1,3 @@
-// Static checks on the side panel and new-tab page (ids exist, no dynamic
-// innerHTML) and the service worker's message router (every message the pages
-// send has a handler; malformed or foreign messages are refused).
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -26,8 +23,6 @@ describe('page ids', () => {
   }
 });
 
-// Each innerHTML may only receive one of these right-hand sides; everything
-// else (model output, page titles, URLs, errors, goals) must use textContent.
 const SAFE_INNER_HTML = {
   'sidepanel.js': ["state === 'paused' ? ICON_PLAY : ICON_PAUSE", 'ICON_CHECK', "RESULT_ICONS[kind] || RESULT_ICONS['']"],
   'newtab.js': ["MODE_HINT[m] || ''"]
@@ -64,7 +59,6 @@ describe('XSS guard', () => {
   });
 });
 
-// ---- background message router ----------------------------------------------
 
 const EXT_ID = 'grolextensionid';
 const ORIGIN = `chrome-extension://${EXT_ID}/`;
@@ -78,7 +72,6 @@ function sentTypes() {
       for (const m of line.matchAll(/'((?:agent|os|settings):[a-z-]+)'/g)) types.add(m[1]);
     }
   }
-  // sidepanel.js: send({ type: `${kind}:${resume ? 'resume' : 'pause'}` }) with kind 'os' | 'agent'.
   assert.match(read('sidepanel.js'), /type: `\$\{kind\}:\$\{resume \? 'resume' : 'pause'\}`/);
   for (const k of ['agent', 'os']) for (const v of ['pause', 'resume']) types.add(`${k}:${v}`);
   return types;
@@ -122,7 +115,6 @@ describe('background message router', () => {
   });
   after(() => { globalThis.fetch = realFetch; });
 
-  // Resolves with what the listener responded.
   function ask(msg, sender = PAGE) {
     return new Promise((resolve) => {
       const keepOpen = listener(msg, sender, resolve);
@@ -152,7 +144,7 @@ describe('background message router', () => {
 
   test('foreign senders are refused', async () => {
     for (const sender of [
-      { id: EXT_ID, url: 'https://evil.example/page', tab: { id: 3 } },     // our content script on a web page
+      { id: EXT_ID, url: 'https://evil.example/page', tab: { id: 3 } },
       { id: 'otherextension', url: 'chrome-extension://otherextension/x.html' },
       { id: EXT_ID },
       {},
@@ -163,18 +155,30 @@ describe('background message router', () => {
     }
   });
 
+  test('a browser task without a key is refused before it starts, flagged needsKey', async () => {
+    const r = await ask({ type: 'agent:start', goal: 'find a tv on amazon' });
+    assert.equal(r.ok, false);
+    assert.equal(r.needsKey, true);
+    assert.match(r.error, /AI API key/);
+    assert.deepEqual(await ask({ type: 'settings:needed' }), { ok: true });
+  });
+
   test('settings: blank, malformed, rejected and accepted keys', async () => {
-    assert.deepEqual(await ask({ type: 'settings:get' }), { ok: true, hasKey: false });
-    assert.match((await ask({ type: 'settings:save', apiKey: '   ' })).error, /Add a Gemini API key/);
-    assert.match((await ask({ type: 'settings:save', apiKey: { evil: 1 } })).error, /Add a Gemini API key/);
+    assert.equal((await ask({ type: 'settings:get' })).hasKey, false);
+    assert.match((await ask({ type: 'settings:save', apiKey: '   ' })).error, /Add an AI API key/);
+    assert.match((await ask({ type: 'settings:save', apiKey: { evil: 1 } })).error, /Add an AI API key/);
     assert.match((await ask({ type: 'settings:save', apiKey: 'not a key at all, clearly' })).error, /does not look like/);
     googleStatus = 400;
-    assert.match((await ask({ type: 'settings:save', apiKey: 'AIzaSyREJECTED000000000000000000000' })).error, /Google rejected/);
+    assert.match((await ask({ type: 'settings:save', apiKey: 'AIzaSyREJECTED000000000000000000000' })).error, /Google Gemini rejected/);
     assert.equal(store.ai, undefined);
     googleStatus = 200;
-    assert.deepEqual(await ask({ type: 'settings:save', apiKey: '  AIzaSyGOODKEY00000000000000000000000 \n' }), { ok: true, verified: true });
-    assert.deepEqual(store.ai, { apiKey: 'AIzaSyGOODKEY00000000000000000000000', provider: 'gemini' });
-    assert.deepEqual(await ask({ type: 'settings:get' }), { ok: true, hasKey: true });
+    assert.deepEqual(await ask({ type: 'settings:save', apiKey: '  AIzaSyGOODKEY00000000000000000000000 \n' }), { ok: true, verified: true, provider: 'Google Gemini' });
+    assert.deepEqual(store.ai, { apiKey: 'AIzaSyGOODKEY00000000000000000000000', provider: 'auto', baseUrl: '', model: '' });
+    const got = await ask({ type: 'settings:get' });
+    assert.equal(got.hasKey, true);
+    assert.equal(got.activeProvider, 'gemini');
+    assert.ok(got.providers.some((p) => p.id === 'anthropic') && got.providers.some((p) => p.id === 'ollama'));
+    assert.match((await ask({ type: 'settings:save', apiKey: 'abcdefghijklmnopqrstuvwxyz123456' })).error, /Pick the provider/);
   });
 
   test('empty goals are refused before anything starts', async () => {
@@ -200,7 +204,23 @@ describe('background message router', () => {
     for (let i = 0; i < 50 && !broadcasts.some((m) => m.type === 'os:done'); i++) await new Promise((res) => setTimeout(res, 10));
     const done = broadcasts.find((m) => m.type === 'os:done');
     assert.equal(done.data.taskId, r.taskId);
-    assert.match(done.data.result, /helper is not running/);     // fetch to the helper fails in this test
+    assert.match(done.data.result, /helper is not running/);
     assert.equal((await ask({ type: 'os:snapshot' })).task.state, 'failed');
+  });
+});
+
+describe('API key onboarding in the pages', () => {
+  const panel = readFileSync(new URL('../../browser/agent-extension/sidepanel.js', import.meta.url), 'utf8');
+  const newtab = readFileSync(new URL('../../browser/agent-extension/newtab.js', import.meta.url), 'utf8');
+
+  test('the side panel checks for a key before starting and keeps the typed task', () => {
+    assert.match(panel, /if \(!\(await refreshKeyState\(\)\)\) \{ pendingGoal = goal; return showKeyCard\(\); \}/);
+    assert.match(panel, /msg\.type === 'settings:needed'/);
+    assert.match(panel, /'Add API key'/);
+  });
+
+  test('the new-tab page asks the panel for a key instead of starting a task without one', () => {
+    assert.match(newtab, /type: 'settings:get'/);
+    assert.match(newtab, /type: 'settings:needed', goal: text/);
   });
 });

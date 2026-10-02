@@ -6,10 +6,8 @@ try {
   playwright = require('playwright');
 } catch {}
 
-const BROWSER_TYPES = ['chromium', 'firefox', 'webkit'];   // Playwright's engine names
+const BROWSER_TYPES = ['chromium', 'firefox', 'webkit'];
 const DEFAULT_BROWSER = BROWSER_TYPES[0];
-// file: and friends would let a page read local files and bypass the
-// filesystem module's protections.
 const ALLOWED_PROTOCOLS = ['http:', 'https:'];
 
 function toUrl(url) {
@@ -259,8 +257,6 @@ class BrowserModule extends CapabilityModule {
     return { result, pageId };
   }
 
-  // Uploading hands a local file to a web page, so the same path rules apply
-  // as for reading it through the filesystem module.
   async uploadFile({ selector, filePath, pageId } = {}) {
     if (!selector || !filePath) throw new Error('Selector and filePath are required');
     const safePath = this.paths.resolve(filePath);

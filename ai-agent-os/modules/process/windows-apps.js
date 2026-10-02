@@ -1,8 +1,3 @@
-/**
- * Windows application discovery and launch, without cmd.exe.
- * Tries, in order: protocol apps, Start menu (Get-StartApps), PATH, registry,
- * Start menu / Desktop shortcuts.
- */
 const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -15,10 +10,6 @@ const PROTOCOL_APPS = {
   clock: 'ms-clock:', alarms: 'ms-clock:', maps: 'bingmaps:', weather: 'bingweather:'
 };
 
-// -EncodedCommand takes the script as base64 UTF-16LE, so no shell or
-// PowerShell quoting is involved. Values go in through GROL_* environment
-// variables and are read as $env:GROL_X: they are never parsed as code.
-// (Quote-doubling is not enough: PowerShell also treats ‘ ’ ‚ ‛ as quotes.)
 function powerShellArgs(script) {
   return ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
     '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
@@ -30,7 +21,6 @@ function powerShellEnv(vars = {}) {
   return env;
 }
 
-// Synchronous; returns '' on any failure (discovery is best-effort).
 function runPowerShell(script, timeoutMs = 10000, vars = {}) {
   try {
     return String(cp.execFileSync('powershell', powerShellArgs(script),
@@ -57,7 +47,6 @@ function launchDetached(target, args = []) {
   child.unref();
 }
 
-// Wildcards would let "*" resolve to an arbitrary program.
 function cleanQuery(query) {
   const q = String(query || '').trim();
   return q && q.length <= 256 && !/[*?\0\r\n"<>|]/.test(q) ? q : '';

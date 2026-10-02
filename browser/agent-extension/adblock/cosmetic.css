@@ -1,0 +1,14 @@
+ins.adsbygoogle,
+.adsbygoogle,
+[id^="google_ads_iframe"],
+[id^="div-gpt-ad"],
+[data-google-query-id],
+iframe[src*="doubleclick.net"],
+iframe[src*="googlesyndication.com"],
+iframe[id^="google_ads"],
+.taboola, [id^="taboola-"], .trc_rbox_container,
+.OUTBRAIN, [data-widget-id^="outbrain"],
+#tads, #tadsb, #bottomads, [data-text-ad],
+.commercial-unit-desktop-top, .commercial-unit-desktop-rhs {
+  display: none !important;
+}

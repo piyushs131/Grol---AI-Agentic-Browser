@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Builds dist/Grol-<version>-arm64.dmg: Grol.app, "Install OS Control.command"
-# (with a bundled node) and a READ ME. Run scripts/build.sh first.
-#
-# Signing is ad-hoc unless GROL_SIGN_ID ("Developer ID Application: Name (TEAMID)")
-# and GROL_NOTARY_PROFILE (a notarytool keychain profile) are set.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source config/engine.conf
@@ -23,14 +18,13 @@ echo "▶ Staging Grol.app"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 ditto "$SRC_APP" "$APP"
 
-# The agent inside the app: always the current repo copy.
 RES="$(echo "$APP"/Contents/Frameworks/*Framework.framework/Versions/Current/Resources)"
 rsync -a --delete --exclude '.DS_Store' "$BROWSER/agent-extension/" "$RES/grol_agent/"
+"$BROWSER/scripts/stamp-agent.sh" "$RES/grol_agent"
 
 echo "▶ Branding"
 PL="$APP/Contents/Info.plist"
 set_plist() { /usr/libexec/PlistBuddy -c "Set :$1 $2" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$PL"; }
-# Own profile folder, so Grol never shares one with another browser built from the same engine.
 set_plist CrProductDirName Grol/Browser
 
 echo "▶ OS Control helper payload"

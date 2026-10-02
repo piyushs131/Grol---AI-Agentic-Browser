@@ -11,10 +11,8 @@ try {
   nutjs = require('@nut-tree-fork/nut-js');
 } catch {}
 
-// App/process actions are also exposed on `desktop` for older callers; they
-// delegate to the process module so there is a single implementation.
 const PROCESS_ACTIONS = [
-  ['openApplication', 'Open / launch an application by name', ['name', 'args'], 'medium'],
+  ['openApplication', 'Open / launch an application by name, optionally opening a file or folder (path) in it', ['name', 'path', 'args'], 'medium'],
   ['closeApplication', 'Close / quit an application by name', ['name'], 'high'],
   ['listProcesses', 'List running processes', ['filter'], 'low'],
   ['getSystemInfo', 'Get system information (CPU, memory, OS, etc.)', [], 'low'],
@@ -22,7 +20,6 @@ const PROCESS_ACTIONS = [
   ['isRunning', 'Check whether an application is currently running', ['name'], 'low']
 ];
 
-// ---- Parameter validation (runs before any OS call) ----
 
 const MAX_COORD = 100000;
 const MAX_SCROLL = 100;
@@ -33,8 +30,6 @@ const KEY_ALIASES = {
   return: 'enter', esc: 'escape', arrowup: 'up', arrowdown: 'down', arrowleft: 'left',
   arrowright: 'right', spacebar: 'space', ' ': 'space'
 };
-// `cmd` is the macOS Command key; elsewhere it means Ctrl ("cmd+c" = copy).
-// `super` is the Windows / Super key itself.
 const MODIFIER_ALIASES = {
   cmd: 'cmd', command: 'cmd', meta: 'cmd', ctrl: 'ctrl', control: 'ctrl',
   alt: 'alt', option: 'alt', opt: 'alt', shift: 'shift', super: 'super', win: 'super', fn: 'fn'
@@ -50,7 +45,6 @@ function toCoordinate(value, name) {
   return n;
 }
 
-// Both coordinates, or neither (= current pointer position).
 function toOptionalPoint(x, y) {
   const has = (v) => v !== undefined && v !== null;
   if (!has(x) && !has(y)) return { x: undefined, y: undefined };
@@ -102,12 +96,10 @@ function canonicalModifier(mod) {
   return MODIFIER_ALIASES[m];
 }
 
-// "cmd+shift+n" -> ['cmd', 'shift', 'n']; a trailing '+' is the plus key ("cmd++").
 function splitCombo(combo) {
   return String(combo).split(/\+(?!$)/).map((s) => s.trim()).filter(Boolean);
 }
 
-// Accepts "cmd+n" as well as { key: 'n', modifiers: ['cmd'] } / 'cmd,shift'.
 function normalizeKeyCombo(key, modifiers = []) {
   if (typeof key !== 'string' || !key) throw new Error('Key is required');
   let mods = modifiers === undefined || modifiers === null ? []
@@ -133,7 +125,6 @@ function normalizeHotkey(keys) {
   return [...modifiers, key];
 }
 
-// ---- Windows backend (PowerShell; data via environment, never spliced in) ----
 
 const SENDKEYS_MODIFIERS = { ctrl: '^', cmd: '^', alt: '%', shift: '+' };
 const SENDKEYS_KEYS = {
@@ -301,15 +292,12 @@ if ($proc) {
   }
 };
 
-// Linux without nut-js has no input backend; only these read-only answers.
 const otherInput = {
   mousePosition: async () => ({ x: 0, y: 0, note: 'Requires @nut-tree-fork/nut-js for accurate position' }),
   screenSize: async () => ({ width: 1920, height: 1080, note: 'Default values - install @nut-tree-fork/nut-js for accuracy' }),
   frontmostApp: async () => ({ title: 'unknown', note: 'Requires @nut-tree-fork/nut-js' })
 };
 
-// ---- nut-js backend (Windows / Linux only: on macOS it would bypass the
-// Accessibility check and its events are dropped silently without it) ----
 
 const NUT_KEYS = {
   enter: 'Enter', tab: 'Tab', escape: 'Escape', space: 'Space',
@@ -497,7 +485,6 @@ class DesktopModule extends CapabilityModule {
     });
   }
 
-  // Input must never land in whatever else happens to be in front.
   async _bringToFront(app) {
     if (app && this.platform === 'darwin') await macInput.ensureFront(app);
   }

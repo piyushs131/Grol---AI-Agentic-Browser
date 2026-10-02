@@ -1,6 +1,3 @@
-// Capability modules: input validation, injection safety and filesystem policy.
-// Nothing here clicks, types, opens/closes apps or runs arbitrary commands:
-// OS calls are stubbed, or are read-only (screen size, frontmost window, ps).
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const cp = require('child_process');
@@ -24,14 +21,12 @@ const EVIL = [
   '’; Start-Process calc; ‘', '"; rm -rf ~; echo "', '😀 emoji ☃ 日本語', '%^+{}[]()~'
 ];
 
-// Replaces obj[name] for the duration of fn, always restoring it.
 async function withStub(obj, name, impl, fn) {
   const original = obj[name];
   obj[name] = impl;
   try { return await fn(); } finally { obj[name] = original; }
 }
 
-// Records execFile calls and answers each via respond(file, args, opts) -> stdout.
 function execFileRecorder(respond = () => '') {
   const calls = [];
   const execFile = (file, args, opts, cb) => {
@@ -109,6 +104,26 @@ describe('mac-input: JXA data passing', () => {
     assert.deepEqual(rec.calls[0], { file: 'open', args: ['-a', name, '--args', '--flag'], opts: rec.calls[0].opts });
     assert.equal(r.focused, true);
     assert.equal(r.frontmost.app, name);
+  });
+
+  test('openApp opens a file or folder IN the app, before any --args', async () => {
+    const rec = execFileRecorder((file) => (file === 'open' ? ''
+      : JSON.stringify({ app: 'Visual Studio Code', bundleId: 'com.microsoft.VSCode', pid: 1, title: '' })));
+    const r = await withStub(cp, 'execFile', rec.execFile, () => macInput.openApp('Visual Studio Code', [], '/tmp/my app'));
+    assert.deepEqual(rec.calls[0].args, ['-a', 'Visual Studio Code', '/tmp/my app']);
+    assert.equal(r.opened, '/tmp/my app');
+    await assert.rejects(macInput.openApp('Visual Studio Code', [], 'relative/path'), /absolute path/);
+  });
+
+  test('openApp opens a URL in the app; process.toOpenPath keeps URLs as-is', async () => {
+    const rec = execFileRecorder((file) => (file === 'open' ? ''
+      : JSON.stringify({ app: 'Google Chrome', bundleId: 'com.google.Chrome', pid: 1, title: '' })));
+    const url = 'https://mail.google.com/mail/?view=cm&fs=1&to=a%40b.com';
+    await withStub(cp, 'execFile', rec.execFile, () => macInput.openApp('Google Chrome', [], url));
+    assert.deepEqual(rec.calls[0].args, ['-a', 'Google Chrome', url]);
+    const t = ProcessModule.__test;
+    assert.equal(t.toOpenPath(url), url);
+    assert.equal(t.toOpenPath('mailto:a@b.com?subject=Hi'), 'mailto:a@b.com?subject=Hi');
   });
 
   test('keyCode / flagsFor reject unknown names and inherited keys', () => {
@@ -702,7 +717,6 @@ describe('filesystem module', () => {
   });
 
   test('delete refuses home, alias roots and ancestors of home', async () => {
-    // '/' and the real home are only checked against the policy below, never via a live delete.
     for (const p of ['desktop', 'Desktop/', 'documents', 'downloads', '~', home, root]) {
       await assert.rejects(run('deleteDirectory', { path: p }), /protected folder/, p);
     }
@@ -806,5 +820,82 @@ describe('browser module', () => {
     b.pages.set('p', { screenshot: async () => { throw new Error('should not capture'); } });
     await assert.rejects(b.execute('screenshot', { pageId: 'p', path: '/usr/local/shot.png' }), /Access denied|Playwright/);
     b.pages.clear();
+  });
+});
+
+describe('scheduler module: dated alarms', () => {
+  const SchedulerModule = require(path.join(MODULES, 'scheduler'));
+  const { parseLocal, alarmIcs } = SchedulerModule.__test;
+
+  test('parses a local date and time and refuses impossible ones', () => {
+    const d = parseLocal('2031-10-05 09:00');
+    assert.deepEqual([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()], [2031, 9, 5, 9, 0]);
+    assert.equal(parseLocal('2031-10-05T21:30').getHours(), 21);
+    assert.throws(() => parseLocal('2031-02-30 09:00'), /not a real date/);
+    assert.throws(() => parseLocal('5 October 9am'), /local date and time/);
+  });
+
+  test('the calendar file rings at the exact time with a sound and an on-screen alert', () => {
+    const ics = alarmIcs({ title: 'Wake up, now', start: parseLocal('2031-10-05 09:00'), minutesBefore: 0, durationMinutes: 15, notes: '' });
+    assert.match(ics, /DTSTART:20311005T090000\r\n/);
+    assert.match(ics, /DTEND:20311005T091500\r\n/);
+    assert.match(ics, /SUMMARY:Wake up\\, now\r\n/);
+    assert.equal((ics.match(/BEGIN:VALARM/g) || []).length, 2);
+    assert.match(ics, /ACTION:AUDIO/);
+    assert.match(ics, /TRIGGER:-PT0M/);
+  });
+
+  test('createAlarm writes the event and opens it in Calendar; past times are refused', async () => {
+    const mod = new SchedulerModule();
+    await mod.initialize({ platform: 'darwin' });
+    const opened = [];
+    const r = await withStub(macInput, '__waitForFront', async () => ({ focused: true }), () =>
+      withStub(macInput, 'pressKey', async (k) => { opened.push(['key', k]); return true; }, () =>
+        withStub(cp, 'execFile', (file, args, opts, cb) => { opened.push([file, args]); cb(null, '', ''); },
+          () => mod.execute('createAlarm', { at: '2031-10-05 09:00', title: 'Alarm' }))));
+    assert.equal(r.opened, true);
+    assert.equal(r.confirmedImport, true, 'presses OK on Calendar\'s import dialog');
+    assert.deepEqual(opened[1], ['key', 'enter']);
+    assert.deepEqual(opened[0].slice(0, 1), ['open']);
+    assert.deepEqual(opened[0][1].slice(0, 2), ['-a', 'Calendar']);
+    assert.match(fs.readFileSync(r.file, 'utf8'), /DTSTART:20311005T090000/);
+    fs.unlinkSync(r.file);
+    await assert.rejects(mod.execute('createAlarm', { at: '2001-01-01 09:00' }), /in the past/);
+  });
+});
+
+describe('filesystem.readDocument', () => {
+  const FilesystemModuleDoc = require(path.join(MODULES, 'filesystem'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grol-doc-'));
+  const txt = path.join(dir, 'nda.txt');
+  fs.writeFileSync(txt, 'NON-DISCLOSURE AGREEMENT\r\n\r\n\r\n\r\nBetween GoKiwi and the Employee.   \nTerm: two years.\n');
+
+  test('plain text comes back tidied, with its size', async () => {
+    const m = new FilesystemModuleDoc(); await m.initialize({});
+    const r = await m.execute('readDocument', { path: txt });
+    assert.equal(r.via, 'text');
+    assert.equal(r.text, 'NON-DISCLOSURE AGREEMENT\n\nBetween GoKiwi and the Employee.\nTerm: two years.');
+    assert.equal(r.truncated, false);
+  });
+
+  test('a binary file that is not a document is refused clearly', async () => {
+    const bin = path.join(dir, 'blob.bin');
+    fs.writeFileSync(bin, Buffer.from([0, 1, 2, 0, 255, 0]));
+    const m = new FilesystemModuleDoc(); await m.initialize({});
+    await assert.rejects(m.execute('readDocument', { path: bin }), /not a text document/);
+  });
+
+  test('PDF and Word text come from built-in macOS tools', { skip: process.platform !== 'darwin' }, async () => {
+    const pdf = path.join(dir, 'nda.pdf');
+    cp.execFileSync('/bin/sh', ['-c', `cupsfilter "${txt}" > "${pdf}" 2>/dev/null`]);
+    cp.execFileSync('textutil', ['-convert', 'docx', txt, '-output', path.join(dir, 'nda.docx')]);
+    const m = new FilesystemModuleDoc(); await m.initialize({});
+    const p = await m.execute('readDocument', { path: pdf });
+    assert.equal(p.via, 'PDFKit');
+    assert.equal(p.pages, 1);
+    assert.match(p.text, /Between GoKiwi and the Employee/);
+    const d = await m.execute('readDocument', { path: path.join(dir, 'nda.docx') });
+    assert.equal(d.via, 'textutil');
+    assert.match(d.text, /Term: two years/);
   });
 });

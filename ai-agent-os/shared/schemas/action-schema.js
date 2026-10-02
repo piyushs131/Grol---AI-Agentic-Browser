@@ -1,4 +1,3 @@
-// Request/response shapes for POST /execute and POST /confirm.
 
 const ACTION_STATUS = Object.freeze({
   SUCCESS: 'success',
@@ -16,7 +15,6 @@ const RISK_LEVELS = Object.freeze({
 const DEFAULT_TIMEOUT_MS = 30000;
 const MAX_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_TASK_ID_LENGTH = 200;
-// Also keeps "__proto__"-style names out before any lookup happens.
 const IDENTIFIER = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 
 const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -58,8 +56,6 @@ class ActionRequest {
     this.timeout = source.timeout;
   }
 
-  // Normalises the fields in place when valid, so the executor only ever sees
-  // an object for parameters and a bounded timeout.
   validate(knownModules = null) {
     const moduleError = validateIdentifier('module', this.module);
     const errors = [

@@ -46,7 +46,7 @@ svg { display:block; }
   color:var(--muted); cursor:pointer; }
 .icon-btn:hover { color:var(--text); border-color:var(--edge-strong); }
 .icon-btn:disabled { opacity:.4; cursor:default; }
-.icon-btn.warn { color:#d97706; border-color:#f59e0b; }   /* no API key yet */
+.icon-btn.warn { color:#d97706; border-color:#f59e0b; }
 
 .main { flex:1; overflow-y:auto; padding:4px 14px 16px; }
 
@@ -159,12 +159,18 @@ svg { display:block; }
 .keycard p { margin:0; color:var(--muted); font-size:12px; }
 .keycard input { font:inherit; padding:8px 10px; border:1px solid var(--edge); border-radius:8px;
   background:var(--bg, #fff); color:inherit; outline:none; }
-.keycard input:focus { border-color:#8b5cf6; }
+.keycard input:focus, .keycard select:focus { border-color:#8b5cf6; }
+.keycard select { font:inherit; padding:8px 10px; border:1px solid var(--edge); border-radius:8px;
+  background:var(--bg, #fff); color:inherit; outline:none; }
+.keycard label { font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:4px; }
+.keycard .keynow { font-size:12px; color:var(--muted); }
 .keyrow { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .keyrow button { padding:7px 14px; border:0; border-radius:8px; cursor:pointer; font-weight:600;
   background:#7c3aed; color:#fff; }
 .keyrow a { font-size:12px; color:#7c3aed; text-decoration:none; }
 .keymsg { font-size:12px; min-height:16px; }
+.keyfix { margin-top:8px; padding:6px 12px; border:0; border-radius:8px; cursor:pointer; font-weight:600;
+  background:#7c3aed; color:#fff; }
 .keymsg.ok { color:#16a34a; } .keymsg.err { color:#dc2626; }
 </style>
 </head>
@@ -180,7 +186,7 @@ svg { display:block; }
         OS Control
       </button>
     </div>
-    <button class="icon-btn" id="keybtn" title="Gemini API key">
+    <button class="icon-btn" id="keybtn" title="AI model and API key">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.2-8.2M16 7l3 3M14 9l2 2"/></svg>
     </button>
     <button class="icon-btn" id="newagent" title="New task" disabled>
@@ -196,12 +202,23 @@ svg { display:block; }
       <div class="chips" id="chips"></div>
       <div class="helper" id="oshint" hidden></div>
       <form class="keycard" id="keycard" hidden autocomplete="off">
-        <b>Connect Grol to Gemini</b>
-        <p>Grol's agent thinks with Google Gemini, using your own API key. It is stored only in this browser.</p>
-        <input id="keyinput" type="password" placeholder="Paste your Gemini API key" spellcheck="false">
+        <b>Connect Grol to an AI model</b>
+        <p>Use your own key from Gemini, Claude, OpenAI, Grok, Groq, OpenRouter, DeepSeek, Mistral, Together,
+          or a local model (Ollama, LM Studio). It is stored only in this browser.</p>
+        <div class="keynow" id="keynow" hidden></div>
+        <label>Provider
+          <select id="keyprovider"><option value="auto">Detect from the key</option></select>
+        </label>
+        <input id="keyinput" type="password" placeholder="Paste your API key" spellcheck="false">
+        <label id="keybaserow" hidden>Base URL
+          <input id="keybase" type="url" placeholder="https://api.example.com/v1" spellcheck="false">
+        </label>
+        <label id="keymodelrow">Model (optional)
+          <input id="keymodel" type="text" placeholder="Leave empty for the recommended model" spellcheck="false">
+        </label>
         <div class="keyrow">
-          <button type="submit" class="approve">Save key</button>
-          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key →</a>
+          <button type="submit" class="approve">Save</button>
+          <a id="keylink" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key →</a>
         </div>
         <div class="keymsg" id="keymsg"></div>
       </form>

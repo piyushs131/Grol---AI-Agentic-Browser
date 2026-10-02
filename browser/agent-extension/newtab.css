@@ -60,7 +60,6 @@ body { margin:0; background:var(--bg); color:var(--text);
   .mode, .cat { color:#b7b7c4; } .card { color:var(--text); } .cmd { border-color:#3a3550; }
 }
 
-/* Only used when a task cannot start; progress lives in the side panel. */
 #log { margin-top:22px; display:none; }
 #log.on { display:block; }
 .row { padding:8px 12px; font-size:13px; display:flex; gap:9px; border-radius:10px; background:rgba(239,68,68,.07); }

@@ -1,17 +1,67 @@
-// Carries out one planner action on the page: resolves where to aim, moves the
-// visible cursor, dispatches real input, and falls back to the DOM helpers in
-// page-scripts.js when real input does not land.
 
 import { CdpPageTarget } from './cdp-page-target.js';
 import { SOM_SCRIPT, CURSOR_SCRIPT } from './page-scripts.js';
 import { matchMarksByText, parseKeyChord, normalizeNavUrl, valueMatches } from './vision-helpers.js';
 
+const SUGGESTION_POLLS = 6;
+const SUGGESTION_POLL_MS = 250;
+
+export function findSuggestion(text) {
+  const field = document.activeElement;
+  if (!field) return 'not-autocomplete';
+  const isAuto = field.getAttribute('role') === 'combobox' || field.hasAttribute('aria-autocomplete')
+    || field.hasAttribute('aria-controls') || field.hasAttribute('aria-owns') || field.hasAttribute('list');
+  const norm = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
+  const want = norm(text);
+  const words = want.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1);
+  if (!isAuto) {
+    const hint = norm([field.type, field.name, field.placeholder, field.getAttribute('aria-label')].join(' '));
+    if (!/search|location|city|address|area|where|destination|from|to\b|pincode|locality|find/.test(hint)) return 'not-autocomplete';
+    const fr = field.getBoundingClientRect();
+    const clickable = 'button, a[href], [role="option"], [role="button"], li, [data-testid*="suggest" i], [class*="suggest" i]';
+    const seen = new Set();
+    const cands = [];
+    for (const el of document.querySelectorAll(clickable)) {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || r.top < fr.bottom - 4 || r.top > fr.bottom + 520) continue;
+      if (r.right < fr.left || r.left > fr.right) continue;
+      const label = norm(el.textContent);
+      if (!label || label.length > 90 || !words.some((w) => label.includes(w))) continue;
+      const outer = el.parentElement && el.parentElement.closest(clickable);
+      if (outer && cands.some((c) => c.el === outer)) continue;
+      if (seen.has(label)) continue;
+      seen.add(label);
+      cands.push({ el, r, label });
+    }
+    if (!cands.length) return null;
+    const rank = (c) => (c.label.startsWith(want) ? 3 : c.label.includes(want) ? 2 : words.filter((w) => c.label.includes(w)).length / words.length);
+    cands.sort((a, b) => rank(b) - rank(a) || a.r.top - b.r.top);
+    const best = cands[0];
+    return { x: best.r.left + best.r.width / 2, y: best.r.top + best.r.height / 2, label: best.el.textContent.trim().slice(0, 80) };
+  }
+  const ids = [field.getAttribute('aria-controls'), field.getAttribute('aria-owns')].filter(Boolean).join(' ').split(/\s+/);
+  const lists = [...ids.map((id) => id && document.getElementById(id)).filter(Boolean),
+    ...document.querySelectorAll('[role="listbox"]')];
+  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
+  const options = [...new Set(lists.flatMap((l) => [...l.querySelectorAll('[role="option"]')]))].filter(visible);
+  if (!options.length) return null;
+  const score = (el) => {
+    const label = norm(el.textContent);
+    if (label.startsWith(want)) return 3;
+    if (label.includes(want)) return 2;
+    return words.filter((w) => label.includes(w)).length / Math.max(words.length, 1);
+  };
+  const best = options.map((el) => ({ el, s: score(el) })).sort((a, b) => b.s - a.s)[0];
+  if (best.s <= 0) return null;
+  best.el.scrollIntoView({ block: 'nearest' });
+  const r = best.el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, label: best.el.textContent.trim().slice(0, 80) };
+}
+
 const arg = JSON.stringify;
 const sigKey = CdpPageTarget.sigKey;
 const POST_ACTION_SETTLE_MS = 12000;
 
-// Target calls made after an action was cancelled (deadline passed, task
-// stopped) throw instead of acting on a page the loop has moved on from.
 function cancellable(target, isCancelled) {
   return new Proxy(target, {
     get(obj, prop) {
@@ -25,6 +75,13 @@ function cancellable(target, isCancelled) {
   });
 }
 
+export function obviousField(marks) {
+  const fields = (marks || []).filter((m) => m && m.typable && !m.disabled && !m.covered);
+  const search = fields.filter((m) => /search/i.test(`${m.role || ''} ${m.name || ''}`));
+  if (search.length) return search[0];
+  return fields.length === 1 ? fields[0] : null;
+}
+
 export class ActionExecutor {
   constructor({ target, logger, run }) {
     this.target = target;
@@ -32,7 +89,6 @@ export class ActionExecutor {
     this.run = run;
   }
 
-  // Starts an action; cancel() stops it touching the page any further.
   start(action, view) {
     const token = { cancelled: false };
     const scoped = Object.create(this);
@@ -59,7 +115,7 @@ export class ActionExecutor {
         case 'select_option': return await this._selectOption(action);
         case 'type': return await this._type(action, view);
         case 'set_range': return await this._setRange(action);
-        case 'scroll': return await this._scroll(action.direction, action.amount, view);
+        case 'scroll': return await this._scroll(action.direction, action.amount, view, action.mark);
         case 'key': {
           const { key, modifiers } = parseKeyChord(action.key);
           return await this.target.pressKey(key, modifiers);
@@ -107,23 +163,17 @@ export class ActionExecutor {
     }
   }
 
-  // Call a window.__grolSoM helper in the page; `fallback` if missing or failing.
   _som(call, fallback = null) {
     return this.target
       .executeJS(`window.__grolSoM ? window.__grolSoM.${call} : ${arg(fallback)}`)
       .catch(() => fallback);
   }
 
-  // Activate an element through the DOM; the result only if it succeeded.
   async _domActivate(call) {
     const forced = await this._som(call);
     return forced && forced.success ? forced : null;
   }
 
-  // Pointer click; if the page does not change and the click never reached
-  // the intended control, retry via the DOM. Covers clicks on the dead centre
-  // of a wrapper whose handler sits on an inner control. A click that did
-  // arrive is never repeated, even if nothing visible changed.
   async _clickOrActivate(x, y, domCall, reachCall) {
     if (domCall) await this._som('armClick()');
     const before = sigKey(await this.target.signature());
@@ -135,8 +185,6 @@ export class ActionExecutor {
     return { res, forced: await this._domActivate(domCall) };
   }
 
-  // Where to aim, in CSS pixels. Marks resolve live; pixel coordinates from
-  // the model are image pixels and are scaled by the shot's CSS/image ratio.
   async resolveTarget(action, view) {
     if (typeof action.mark === 'number') {
       const max = (view.marks || []).length;
@@ -147,8 +195,6 @@ export class ActionExecutor {
           `or use click_text with the button's visible label.`
         );
       }
-      // Live rect at action time; the cached one only if the node is gone
-      // from the same document (a re-render), never after a navigation.
       const resolved = await this._som(`resolveMark(${action.mark})`);
       if (resolved && Number.isFinite(resolved.x) && Number.isFinite(resolved.y)) {
         return { x: resolved.x, y: resolved.y, via: 'mark ' + action.mark, meta: resolved };
@@ -179,8 +225,6 @@ export class ActionExecutor {
     try {
       await this.target.executeJS(CURSOR_SCRIPT, { timeout: 3000 });
       const glide = await this.target.executeJS(`window.__grolCursor.moveTo(${x}, ${y}, 380)`, { timeout: 2000 });
-      // moveTo returns immediately (CSS transition); wait out the glide so the
-      // user sees the cursor travel before the click lands.
       await this.sleep(glide && glide.duration ? glide.duration : 380);
       await this.target.executeJS('window.__grolCursor.pulse()', { timeout: 2000 });
     } catch (err) {
@@ -189,9 +233,6 @@ export class ActionExecutor {
   }
 
   async _clickText(action, view) {
-    // Several controls can share the label ("Add to cart" on every result).
-    // Picking one by geometry looks deliberate and is arbitrary, so refuse and
-    // list the candidates for the next turn to name a mark.
     const rivals = matchMarksByText(view.marks, action.text);
     if (rivals.length > 1) {
       const opts = rivals.slice(0, 8)
@@ -209,8 +250,6 @@ export class ActionExecutor {
       return this._click({ ...action, action: 'click', mark: rivals[0].mark }, view);
     }
 
-    // Marks only cover the viewport; the wanted button (Continue, Place Order)
-    // is usually further down. Search the whole document before calling it absent.
     const text = arg(String(action.text ?? ''));
     const swept = await this._som(`findActionable(${text})`);
     if (swept && swept.found && !swept.disabled) {
@@ -260,15 +299,11 @@ export class ActionExecutor {
     if (meta.disabled) {
       return { success: false, error: `"${elementName}" is disabled - something else has to be done first` };
     }
-    // A native dropdown opens as browser UI the screenshot never shows.
     if (meta.tag === 'SELECT' || meta.role === 'select') {
       const options = Array.isArray(meta.options) && meta.options.length ? ` Options: ${meta.options.join(' / ')}` : '';
       return { success: false, error: `"${elementName}" is a dropdown - use select_option with the option text.${options}` };
     }
     if (meta.covered) {
-      // elementFromPoint often reports a control's own menu container or a
-      // decorative sibling as "on top". A real modal covers a big slab of the
-      // screen; a small blocker is a hit-test artifact, so go through the DOM.
       const pct = typeof meta.blockerPct === 'number' ? meta.blockerPct : 100;
       if (pct < 25 && hasMark) {
         const forced = await this._domActivate(activateMark);
@@ -286,8 +321,6 @@ export class ActionExecutor {
       };
     }
 
-    // The point lands on an ancestor wrapper: events bubble up, never down, so
-    // a pointer click would never reach the target's handler.
     if (meta.hitsTarget === false && hasMark) {
       await this.pointAt(point.x, point.y);
       const forced = await this._domActivate(activateMark);
@@ -299,8 +332,6 @@ export class ActionExecutor {
 
     await this.pointAt(point.x, point.y);
 
-    // Lazy-loading pages reflow during the cursor glide; hit-test again right
-    // before dispatch so the click cannot land on whatever moved in.
     if (hasMark && label) {
       const stillThere = await this._som(`pointHits(${point.x}, ${point.y}, ${arg(label)})`, true);
       if (stillThere === false) {
@@ -324,7 +355,6 @@ export class ActionExecutor {
 
   async _selectOption(action) {
     if (!Number.isInteger(action.mark)) return { success: false, error: 'select_option needs the dropdown\'s mark number' };
-    // A native <select> popup cannot be driven by input events; set it in the DOM.
     const res = await this.target.executeJS(
       `window.__grolSoM ? window.__grolSoM.selectOption(${action.mark}, ${arg(String(action.text ?? ''))}) : null`
     ).catch((err) => ({ success: false, error: err.message }));
@@ -337,6 +367,12 @@ export class ActionExecutor {
 
   async _type(action, view) {
     const text = String(action.text ?? '');
+    if (typeof action.mark !== 'number' && !(Number.isFinite(action.x) && Number.isFinite(action.y))) {
+      const field = obviousField(view.marks);
+      if (!field) return { success: false, error: 'Say which field to type into: give its mark number.' };
+      this.logger?.info(`[Agent] no field named - typing into [${field.mark}] "${field.name || field.role}"`);
+      action = { ...action, mark: field.mark };
+    }
     const point = await this.resolveTarget(action, view);
     if (!point) return { success: false, error: 'Could not resolve the input field' };
     const field = point.meta || {};
@@ -352,7 +388,6 @@ export class ActionExecutor {
     if (!clicked.success) return clicked;
     await this.sleep(140);
 
-    // Rich editors (Gmail's body, some web components) need an explicit focus().
     if (hasMark) await this._som(`focusMark(${action.mark})`, false);
 
     const current = await this._som('activeValue()');
@@ -361,9 +396,6 @@ export class ActionExecutor {
     const typed = await this.target.typeText(text);
     if (!typed.success) return typed;
 
-    // Keystrokes go wherever focus is: a mis-read mark number, or a React input
-    // that re-renders from state, leaves nothing typed. Check, then set the
-    // value directly on the field the agent meant.
     let landed = false;
     if (hasMark) {
       const got = await this._som(`fieldValue(${action.mark})`);
@@ -381,6 +413,8 @@ export class ActionExecutor {
       }
     }
 
+    const picked = await this._pickSuggestion(text);
+    if (picked) return { success: true, typed: text.length, via: point.via, picked };
     if (action.submit) {
       await this.sleep(220);
       await this.target.pressKey('Enter');
@@ -388,8 +422,21 @@ export class ActionExecutor {
     return { success: true, typed: text.length, via: point.via };
   }
 
-  // Drag the handle like a person, then arrow keys for the exact value, then
-  // set it through the DOM if the page ignores real input.
+  async _pickSuggestion(text) {
+    const probe = `(${findSuggestion.toString()})(${arg(text)})`;
+    for (let i = 0; i < SUGGESTION_POLLS; i++) {
+      await this.sleep(SUGGESTION_POLL_MS);
+      const found = await this.target.executeJS(probe).catch(() => null);
+      if (found === 'not-autocomplete') return null;
+      if (found && typeof found === 'object') {
+        await this.pointAt(found.x, found.y);
+        const clicked = await this.target.click(found.x, found.y);
+        return clicked.success ? found.label : null;
+      }
+    }
+    return null;
+  }
+
   async _setRange(action) {
     const mark = typeof action.mark === 'number' ? action.mark : -1;
     const planCall = `rangePlan(${mark}, ${arg(action.value)}, ${arg(action.bound || 'max')})`;
@@ -397,7 +444,7 @@ export class ActionExecutor {
     if (!plan) return { success: false, error: 'Could not reach the slider' };
     if (!plan.success) return plan;
 
-    await this.sleep(250);         // rangePlan scrolled the slider into view
+    await this.sleep(250);
     await this.pointAt(plan.x0, plan.y);
     await this.target.drag(plan.x0, plan.y, plan.x1, plan.y);
     await this.sleep(300);
@@ -405,8 +452,6 @@ export class ActionExecutor {
     let now = await this._som('rangeRead()');
     let via = 'drag';
     if (!now) {
-      // Shops like Amazon apply the filter on release and reload, so the
-      // dragged slider is gone; check the new page's slider instead.
       await this.target.waitForSettle({ timeout: POST_ACTION_SETTLE_MS });
       await this.target.executeJS(SOM_SCRIPT, { timeout: 6000 }).catch(() => null);
       const again = await this._som(planCall);
@@ -448,8 +493,6 @@ export class ActionExecutor {
     };
   }
 
-  // The new tab is attached directly: while it loads its URL is empty, and
-  // re-picking "the active drivable tab" would wander back to the old one.
   async _openTab(url) {
     try {
       const tab = await chrome.tabs.create({ url, active: true });
@@ -475,18 +518,18 @@ export class ActionExecutor {
     }
   }
 
-  // window.scrollBy does nothing on apps that scroll an inner pane (Gmail,
-  // Slack), so scroll the nearest scrollable ancestor of the viewport centre,
-  // and fall back to a real wheel event for virtualised lists.
-  async _scroll(direction, amount, view) {
+  async _scroll(direction, amount, view, mark) {
     const by = Math.abs(Number(amount)) || 600;
     const dy = direction === 'up' ? -by : direction === 'down' ? by : 0;
     const dx = direction === 'left' ? -by : direction === 'right' ? by : 0;
     if (!dx && !dy) return { success: false, error: `Cannot scroll "${direction}" - use up, down, left or right` };
+    const m = typeof mark === 'number' ? (view?.marks || []).find((x) => x.mark === mark) : null;
+    const at = m && m.rect ? { x: Math.round(m.rect.x + m.rect.w / 2), y: Math.round(m.rect.y + m.rect.h / 2) } : null;
 
     const moved = await this.target.executeJS(`
       (function () {
-        var cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+        var at = ${JSON.stringify(at)};
+        var cx = at ? at.x : window.innerWidth / 2, cy = at ? at.y : window.innerHeight / 2;
         var el = document.elementFromPoint(cx, cy);
         var dx = ${dx}, dy = ${dy};
         function scrollable(node) {
@@ -518,8 +561,8 @@ export class ActionExecutor {
       return { success: true, scrolled: direction, by, target: moved.target };
     }
 
-    const cx = Math.round((view?.viewport?.w || 800) / 2);
-    const cy = Math.round((view?.viewport?.h || 600) / 2);
+    const cx = at ? at.x : Math.round((view?.viewport?.w || 800) / 2);
+    const cy = at ? at.y : Math.round((view?.viewport?.h || 600) / 2);
     await this.target.wheel(cx, cy, dx, dy);
     await this.sleep(260);
     return { success: true, scrolled: direction, by, target: 'wheel' };

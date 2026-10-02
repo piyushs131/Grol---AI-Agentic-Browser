@@ -1,7 +1,3 @@
-// Owns the OS Control task for the service worker: start / pause / resume /
-// stop, confirmations, and the event log a side panel opened mid-run replays.
-// The log is mirrored to session storage so a panel still learns how a task
-// ended if Chrome restarts the worker in the middle of it.
 import { runOsTask } from './os-agent.js';
 
 const STORE_KEY = 'osTask';
@@ -11,8 +7,6 @@ const LIVE = new Set(['thinking', 'executing', 'paused', 'waiting_for_user']);
 export const INTERRUPTED = 'Interrupted: the browser restarted its background worker. Run the task again.';
 
 export class OsTaskController {
-  // send(msg) broadcasts to the extension's pages; storage is { get(key), set(key, value) };
-  // keepAlive() starts whatever keeps the worker awake and returns its stop function.
   constructor({ run = runOsTask, send = () => {}, storage = null, keepAlive = () => () => {}, logger } = {}) {
     this.run = run;
     this.send = send;
@@ -51,7 +45,6 @@ export class OsTaskController {
       .catch((e) => this.logger?.warn('[os] could not save task state: ' + e.message));
   }
 
-  // On worker start: a task stored as still running died with the old worker.
   async restore() {
     if (!this.storage || this.current) return;
     let saved = null;
@@ -79,8 +72,6 @@ export class OsTaskController {
     };
     this.current = task;
     this.broadcast(task, 'os:started', { goal });
-    // An MV3 worker is stopped after ~30s without extension events, which would
-    // kill a task mid-way while it waits on the model, on a pause or on the user.
     const stopKeepAlive = this.keepAlive();
     task.done = Promise.resolve()
       .then(() => this.run(goal, this.hooks(task, apiKey)))
@@ -154,7 +145,7 @@ export class OsTaskController {
     t.aborted = true;
     t.paused = false;
     t.controller.abort();
-    t.resumers.splice(0).forEach((r) => r());      // release a paused loop so it can exit
+    t.resumers.splice(0).forEach((r) => r());
     for (const answer of [...t.confirmWaits.values()]) answer(false);
     return true;
   }

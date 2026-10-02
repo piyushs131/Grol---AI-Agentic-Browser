@@ -34,6 +34,11 @@ in `~/depot_tools`, about 150 GB of free disk and 16 GB of RAM or more.
 - `run.sh` loads the agent straight from `agent-extension/`, so extension
   changes apply on the next launch with no rebuild.
 
+The Grol name and logo replace the upstream ones during `apply-patches.sh`
+(`scripts/brand-strings.py` and `scripts/brand-logos.sh`). To change the logo, edit
+`agent-extension/logo.svg`, run `node scripts/render-logo-masters.mjs` (needs Google
+Chrome) to refresh `resources/logo/`, then re-apply and rebuild.
+
 The extension's ID (`ebhlbffbihmgefabpeglnhjadadhcmjc`) is fixed by the `key`
 field in `agent-extension/manifest.json`, so settings survive rebuilds.
 

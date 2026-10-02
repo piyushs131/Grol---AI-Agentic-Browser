@@ -1,10 +1,6 @@
-// Parse the JSON a model replied with, tolerating markdown fences, prose
-// around it, or a second object after the first.
 
 const MAX_CANDIDATES = 20;
 
-// Brace-balanced and string-aware from `start`, so a "}" inside a value does not
-// end it. A greedy /\{[\s\S]*\}/ would span two objects and fail to parse.
 function balancedObjectAt(s, start) {
   let depth = 0;
   let inString = false;
@@ -37,16 +33,15 @@ export function parseModelJSON(text) {
     .trim();
   try {
     return JSON.parse(cleaned);
-  } catch (_) { /* look for an object inside */ }
+  } catch (_) {  }
 
-  // Prose may contain braces of its own ("use {x}"), so try each "{" in turn.
   let from = 0;
   for (let n = 0; n < MAX_CANDIDATES; n++) {
     const start = cleaned.indexOf('{', from);
     if (start === -1) break;
     const candidate = balancedObjectAt(cleaned, start);
     if (candidate) {
-      try { return JSON.parse(candidate); } catch (_) { /* try the next "{" */ }
+      try { return JSON.parse(candidate); } catch (_) {  }
     }
     from = start + 1;
   }

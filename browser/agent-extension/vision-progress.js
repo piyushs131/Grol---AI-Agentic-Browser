@@ -1,5 +1,3 @@
-// Loop detection for the agent: repeated actions, page states it keeps
-// returning to, actions that changed nothing, and what not to retry per page.
 
 import { stuckWarning } from './vision-helpers.js';
 
@@ -9,9 +7,9 @@ export class ProgressGuard {
     this.stateWindow = stateWindow;
     this.actionWindow = actionWindow;
     this.noChangeStreak = 0;
-    this._avoid = new Map();       // url -> Set(action description)
+    this._avoid = new Map();
     this._actions = [];
-    this._states = [];             // page signatures seen when acting
+    this._states = [];
   }
 
   avoid(url, description) {
@@ -24,10 +22,6 @@ export class ProgressGuard {
 
   forget(url) { this._avoid.delete(url); }
 
-  // Two actions that undo each other (open picker, close picker...) change
-  // the page every time, so only revisiting the same page state catches it.
-  // Counts only states the agent acted on: a retry after a failed model call
-  // is not a revisit.
   revisits(stateKey) {
     return this._states.filter((k) => k === stateKey).length + 1;
   }
@@ -41,7 +35,6 @@ export class ProgressGuard {
       `action you keep retrying can work.`;
   }
 
-  // True when this exact action was already tried too often recently.
   recordAction(key, stateKey) {
     this._actions.push(key);
     if (this._actions.length > this.actionWindow) this._actions.shift();
@@ -54,8 +47,6 @@ export class ProgressGuard {
 
   stuckWarning() { return stuckWarning(this._actions); }
 
-  // Waiting or noting deliberately leaves the page alone: it neither counts
-  // as a dead action nor proves progress.
   recordOutcome({ changed, nonVisual }) {
     if (changed) this.noChangeStreak = 0;
     else if (!nonVisual) this.noChangeStreak++;

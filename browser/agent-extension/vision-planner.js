@@ -1,23 +1,19 @@
-// VisionPlanner: reads the page (screenshot with numbered marks plus the page's
-// own text) and decides ONE action. The reply must state an observation before
-// the action, and "done" claims are audited separately by verifyDone().
-// Prompts live in vision-prompts.js, reply parsing in vision-normalize.js.
-import { GeminiLadder } from './gemini-ladder.js';
+import { GeminiLadder, storedLastModel } from './gemini-ladder.js';
 import { parseModelJSON } from './gemini-json.js';
 import { getApiKey, apiKeyProblem } from './settings.js';
 import { SYSTEM_PROMPT, PLAN_PROMPT, VERIFY_PROMPT, buildVisionMessage } from './vision-prompts.js';
 import { normalizeAction, readObservation } from './vision-normalize.js';
 
 const truthy = (v) => v === true || v === 'true';
-// The plan only feeds the panel's checklist, so the task never waits long for it.
 const PLAN_DEADLINE_MS = 20000;
-const DECISION_DEADLINE_MS = 90000;
+const DECISION_DEADLINE_MS = 60000;
+const HEDGE_MS = 7000;
 
 class VisionPlanner {
   constructor({ logger, ladder, readApiKey = getApiKey, onModelBusy } = {}) {
     this.logger = logger;
     this.onModelBusy = onModelBusy;
-    this.ladder = ladder || new GeminiLadder({ logger });
+    this.ladder = ladder || new GeminiLadder({ logger, stickToLastGood: true, memory: storedLastModel() });
     this.readApiKey = readApiKey;
   }
 
@@ -33,10 +29,9 @@ class VisionPlanner {
     const parts = texts.map((text) => ({ text }));
     const data = shot && typeof shot.dataUrl === 'string' ? shot.dataUrl.split(',')[1] : '';
     if (data) parts.push({ inlineData: { mimeType: shot.mimeType || 'image/png', data } });
-    return this.ladder.ask(apiKey, parts, { json, deadlineMs, onModelError: (model, err) => this.onModelBusy?.(model, err) });
+    return this.ladder.ask(apiKey, parts, { json, deadlineMs, hedgeMs: HEDGE_MS, onModelError: (model, err) => this.onModelBusy?.(model, err) });
   }
 
-  // Always resolves to a non-empty plan so the UI and agent have steps to follow.
   async getInitialPlan(goal) {
     await this.apiKey();
     try {
@@ -60,15 +55,12 @@ class VisionPlanner {
     };
   }
 
-  // A separate, narrow call: "is this actually finished?" is a different
-  // question from "what next?", and the decision prompt is biased toward acting.
   async verifyDone(ctx) {
     const claim = String(ctx.claim || '').slice(0, 400);
     const raw = await this.ask([VERIFY_PROMPT(ctx.goal, claim) + buildVisionMessage(ctx)], ctx.shot);
     let out;
     try { out = parseModelJSON(raw); } catch (_) { out = null; }
     if (Array.isArray(out)) out = out[0];
-    // An unreadable verdict is not a pass.
     if (!out || typeof out !== 'object') {
       return { complete: false, evidence: '', missing: 'the completion check could not be read', next: '' };
     }

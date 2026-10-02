@@ -1,9 +1,3 @@
-// Draws the numbered element marks onto a copy of the screenshot (OffscreenCanvas
-// in the service worker), so the page itself is never painted over.
-//
-// Coordinate spaces: mark rects and click points are CSS pixels; the image is
-// device pixels. The model reads positions off the image, so the shot carries
-// scaleX/scaleY = CSS px per image px, taken from the decoded image itself.
 
 const DEFAULT_COLOR = '#E11D48';
 
@@ -14,8 +8,6 @@ async function blobToDataUrl(blob) {
   return `data:${blob.type};base64,${btoa(bin)}`;
 }
 
-// The shot's geometry recomputed from the real image size, which wins over the
-// devicePixelRatio estimate (fractional ratios, zoom and rounding differ).
 export function withImageSize(shot, width, height) {
   if (!(width > 0 && height > 0)) return shot;
   const cssW = shot.cssWidth || width;
@@ -23,7 +15,6 @@ export function withImageSize(shot, width, height) {
   return { ...shot, imageWidth: width, imageHeight: height, scaleX: cssW / width, scaleY: cssH / height };
 }
 
-// Returns the shot with the marks composited in, or the original on any failure.
 export async function drawMarks(shot, marks) {
   if (!shot || !shot.dataUrl || !Array.isArray(marks) || !marks.length) return shot;
   try {
@@ -48,7 +39,6 @@ export async function drawMarks(shot, marks) {
       const color = m.color || DEFAULT_COLOR;
       ctx.globalAlpha = m.muted ? 0.55 : 1;
 
-      // Dashed when the element is covered or disabled.
       ctx.strokeStyle = color;
       ctx.lineWidth = 2 * s;
       ctx.setLineDash(m.muted ? [5 * s, 3 * s] : []);
@@ -70,6 +60,6 @@ export async function drawMarks(shot, marks) {
     const blob = await canvas.convertToBlob({ type, quality: 0.82 });
     return { ...sized, dataUrl: await blobToDataUrl(blob), mimeType: blob.type, bytes: blob.size };
   } catch (_) {
-    return shot;      // an unmarked screenshot is still usable; never fail the step
+    return shot;
   }
 }

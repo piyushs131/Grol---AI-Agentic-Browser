@@ -1,12 +1,8 @@
-// chrome.runtime.onMessage listener for the service worker. Only the
-// extension's own pages may drive the agents: a content script or another
-// extension could otherwise start tasks, read state or save a key.
 
 export function isTrustedSender(sender, { id, origin }) {
   return !!sender && sender.id === id && typeof sender.url === 'string' && sender.url.startsWith(origin);
 }
 
-// handlers: { [type]: (msg, sender) => response | Promise<response> }
 export function createMessageListener(handlers, { id, origin, logger } = {}) {
   return (msg, sender, respond) => {
     if (!isTrustedSender(sender, { id, origin })) {
@@ -25,6 +21,6 @@ export function createMessageListener(handlers, { id, origin, logger } = {}) {
         logger?.error(`[background] ${type}: ${e && e.message}`);
         respond({ ok: false, error: (e && e.message) || 'failed' });
       });
-    return true;      // keep the channel open for the async respond
+    return true;
   };
 }

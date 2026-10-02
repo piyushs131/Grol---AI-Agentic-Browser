@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Grol Agent",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Drives pages for the Grol agent over the DevTools protocol.",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -10,7 +10,10 @@
     "scripting",
     "activeTab",
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "declarativeNetRequest",
+    "alarms",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -20,13 +23,6 @@
   "background": {
     "service_worker": "background.js",
     "type": "module"
-  },
-  "action": {
-    "default_title": "Grol Agent",
-    "default_icon": {
-      "16": "icons/grol-16.png",
-      "32": "icons/grol-32.png"
-    }
   },
   "chrome_url_overrides": {
     "newtab": "newtab.html"
@@ -40,5 +36,292 @@
     "32": "icons/grol-32.png",
     "48": "icons/grol-48.png",
     "128": "icons/grol-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://*.youtube-nocookie.com/*"
+      ],
+      "js": [
+        "adblock/youtube-main.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://*.youtube-nocookie.com/*"
+      ],
+      "js": [
+        "adblock/youtube.js"
+      ],
+      "css": [
+        "adblock/youtube.css"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "css": [
+        "adblock/cosmetic.css",
+        "adblock/lists/generic.css"
+      ],
+      "exclude_matches": [
+        "*://*.accounts.google.com/*",
+        "*://*.adblockplus.org/*",
+        "*://*.ads.microsoft.com/*",
+        "*://*.adsmanager.facebook.com/*",
+        "*://*.aetv.com/*",
+        "*://*.amazon.ae/*",
+        "*://*.amazon.ca/*",
+        "*://*.amazon.cn/*",
+        "*://*.amazon.co.jp/*",
+        "*://*.amazon.co.uk/*",
+        "*://*.amazon.com/*",
+        "*://*.amazon.com.au/*",
+        "*://*.amazon.com.br/*",
+        "*://*.amazon.com.mx/*",
+        "*://*.amazon.com.tr/*",
+        "*://*.amazon.de/*",
+        "*://*.amazon.eg/*",
+        "*://*.amazon.es/*",
+        "*://*.amazon.fr/*",
+        "*://*.amazon.in/*",
+        "*://*.amazon.it/*",
+        "*://*.amazon.nl/*",
+        "*://*.amazon.pl/*",
+        "*://*.amazon.sa/*",
+        "*://*.amazon.se/*",
+        "*://*.amazon.sg/*",
+        "*://*.androidpolice.com/*",
+        "*://*.apkmirror.com/*",
+        "*://*.apple.com/*",
+        "*://*.artnet.com/*",
+        "*://*.atlassian.net/*",
+        "*://*.babygaga.com/*",
+        "*://*.backyardboss.net/*",
+        "*://*.bing.com/*",
+        "*://*.bitbucket.org/*",
+        "*://*.boot.dev/*",
+        "*://*.brighteon.com/*",
+        "*://*.browserbench.org/*",
+        "*://*.builder.io/*",
+        "*://*.calendar.google.com/*",
+        "*://*.canva.com/*",
+        "*://*.carbuzz.com/*",
+        "*://*.cbr.com/*",
+        "*://*.cbs.com/*",
+        "*://*.cdpn.io/*",
+        "*://*.centro.co.il/*",
+        "*://*.challenges.cloudflare.com/*",
+        "*://*.chatgpt.com/*",
+        "*://*.claude.ai/*",
+        "*://*.cloud.google.com/*",
+        "*://*.codepen.io/*",
+        "*://*.codesandbox.io/*",
+        "*://*.collider.com/*",
+        "*://*.console.cloud.google.com/*",
+        "*://*.contacts.google.com/*",
+        "*://*.curiositystream.com/*",
+        "*://*.cuttty.com/*",
+        "*://*.cwtv.com/*",
+        "*://*.deezer.com/*",
+        "*://*.destinationamerica.com/*",
+        "*://*.discord.com/*",
+        "*://*.discoveryplus.com/*",
+        "*://*.disneyplus.com/*",
+        "*://*.docs.google.com/*",
+        "*://*.dragontea.ink/*",
+        "*://*.drive.google.com/*",
+        "*://*.dropbox.com/*",
+        "*://*.dualshockers.com/*",
+        "*://*.duckduckgo.com/*",
+        "*://*.facebook.com/*",
+        "*://*.fastmail.com/*",
+        "*://*.figma.com/*",
+        "*://*.fingerprintjs.com/*",
+        "*://*.footballfancast.com/*",
+        "*://*.footballleagueworld.co.uk/*",
+        "*://*.freecodecamp.org/*",
+        "*://*.gamerant.com/*",
+        "*://*.games.pch.com/*",
+        "*://*.geekzone.co.nz/*",
+        "*://*.gemini.google.com/*",
+        "*://*.github.com/*",
+        "*://*.github.io/*",
+        "*://*.gitlab.com/*",
+        "*://*.givemesport.com/*",
+        "*://*.gmail.com/*",
+        "*://*.hardcoregamer.com/*",
+        "*://*.history.com/*",
+        "*://*.hotcars.com/*",
+        "*://*.howtogeek.com/*",
+        "*://*.icloud.com/*",
+        "*://*.instagram.com/*",
+        "*://*.instapundit.com/*",
+        "*://*.instawp.xyz/*",
+        "*://*.jetzt.de/*",
+        "*://*.jokerly.com/*",
+        "*://*.jsfiddle.net/*",
+        "*://*.mail.google.com/*",
+        "*://*.makeuseof.com/*",
+        "*://*.material.angular.io/*",
+        "*://*.material.io/*",
+        "*://*.matlab.mathworks.com/*",
+        "*://*.max.com/*",
+        "*://*.maxstream.video/*",
+        "*://*.meet.google.com/*",
+        "*://*.megaup.net/*",
+        "*://*.milfzr.com/*",
+        "*://*.moms.com/*",
+        "*://*.morphic.sh/*",
+        "*://*.movieweb.com/*",
+        "*://*.mui.com/*",
+        "*://*.music.amazon./*",
+        "*://*.music.youtube.com/*",
+        "*://*.myaccount.google.com/*",
+        "*://*.nebula.tv/*",
+        "*://*.neoseeker.com/*",
+        "*://*.netflix.com/*",
+        "*://*.nfl.com/*",
+        "*://*.notebooklm.google.com/*",
+        "*://*.notion.so/*",
+        "*://*.oisd.nl/*",
+        "*://*.onedrive.live.com/*",
+        "*://*.open.spotify.com/*",
+        "*://*.optout.networkadvertising.org/*",
+        "*://*.pandora.com/*",
+        "*://*.paramountplus.com/*",
+        "*://*.peacocktv.com/*",
+        "*://*.photos.google.com/*",
+        "*://*.pinterest.com/*",
+        "*://*.playcode.io/*",
+        "*://*.pocket-lint.com/*",
+        "*://*.pocketnow.com/*",
+        "*://*.proton.me/*",
+        "*://*.proxmox.local/*",
+        "*://*.publicwww.com/*",
+        "*://*.qobuz.com/*",
+        "*://*.receiveasms.com/*",
+        "*://*.reddit.com/*",
+        "*://*.riverside.fm/*",
+        "*://*.sc2casts.com/*",
+        "*://*.schemeflood.com/*",
+        "*://*.sciencechannel.com/*",
+        "*://*.screenrant.com/*",
+        "*://*.simpleflying.com/*",
+        "*://*.slack.com/*",
+        "*://*.smallseotools.com/*",
+        "*://*.sonichits.com/*",
+        "*://*.soranews24.com/*",
+        "*://*.sourcegraph.com/*",
+        "*://*.spanishdict.com/*",
+        "*://*.stackblitz.com/*",
+        "*://*.startpage.com/*",
+        "*://*.stream4free.live/*",
+        "*://*.tab.gladly.io/*",
+        "*://*.taboolanews.com/*",
+        "*://*.tailscale.com/*",
+        "*://*.teams.live.com/*",
+        "*://*.teams.microsoft.com/*",
+        "*://*.testufo.com/*",
+        "*://*.thefreedictionary.com/*",
+        "*://*.thegamer.com/*",
+        "*://*.therichest.com/*",
+        "*://*.thesportster.com/*",
+        "*://*.thethings.com/*",
+        "*://*.thetravel.com/*",
+        "*://*.tidal.com/*",
+        "*://*.tiktok.com/*",
+        "*://*.tlc.com/*",
+        "*://*.topspeed.com/*",
+        "*://*.tubitv.com/*",
+        "*://*.tv.youtube.com/*",
+        "*://*.twitch.tv/*",
+        "*://*.up-load.io/*",
+        "*://*.web.basemark.com/*",
+        "*://*.web.telegram.org/*",
+        "*://*.webex.com/*",
+        "*://*.whatsapp.com/*",
+        "*://*.wikibooks.org/*",
+        "*://*.wikidata.org/*",
+        "*://*.wikinews.org/*",
+        "*://*.wikipedia.org/*",
+        "*://*.wikiquote.org/*",
+        "*://*.wikiversity.org/*",
+        "*://*.wiktionary.org/*",
+        "*://*.www.youtube.com/*",
+        "*://*.x.com/*",
+        "*://*.xda-developers.com/*",
+        "*://*.yandex.com/*",
+        "*://*.yellowbridge.com/*",
+        "*://*.yibada.com/*"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "adblock/cosmetic-request.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://www.google.com/search*",
+        "*://www.google.co.in/search*",
+        "*://www.google.co.uk/search*",
+        "*://www.google.ca/search*",
+        "*://www.google.com.au/search*",
+        "*://www.google.de/search*",
+        "*://www.google.fr/search*",
+        "*://www.google.es/search*",
+        "*://www.google.it/search*",
+        "*://www.google.nl/search*",
+        "*://www.google.com.br/search*",
+        "*://www.google.com.mx/search*",
+        "*://www.google.co.jp/search*",
+        "*://www.google.com.sg/search*",
+        "*://www.google.co.nz/search*",
+        "*://www.google.ie/search*",
+        "*://www.google.ae/search*",
+        "*://www.google.co.za/search*"
+      ],
+      "js": [
+        "adblock/google.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "adblock/stubs/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "commands": {
+    "open-agent": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Open Grol Agent"
+    }
   }
 }

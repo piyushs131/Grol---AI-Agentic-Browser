@@ -1,5 +1,3 @@
-// The side panel shows each action as a short label and a plain sentence
-// ("Type “hello” and press Return"), never the raw module.action + JSON.
 const KEY_LABEL = { cmd: '⌘', command: '⌘', meta: '⌘', super: '⌘', win: '⌘', shift: '⇧', alt: '⌥',
   option: '⌥', opt: '⌥', ctrl: '⌃', control: '⌃', enter: 'Return', return: 'Return', tab: 'Tab',
   escape: 'Esc', esc: 'Esc', space: 'Space', backspace: 'Delete', delete: 'Delete',
@@ -16,7 +14,14 @@ export function describe(a) {
   const p = a.parameters || {};
   const file = (x) => String(x || '').replace(/^(desktop|documents|downloads|pictures)\//i, (m) => m[0].toUpperCase() + m.slice(1, -1) + ' › ');
   switch (a.action) {
-    case 'openApplication':  return { kind: 'open', text: String(p.name || '') };
+    case 'openApplication': {
+      const target = String(p.path || '');
+      if (/^https:\/\/mail\.google\.com\/mail\/\?/.test(target)) {
+        const to = new URL(target).searchParams.get('to');
+        return { kind: 'open', text: `Email draft to ${clip(to || 'someone', 50)}` };
+      }
+      return { kind: 'open', text: String(p.name || '') + (target ? ` › ${clip(target.replace(/^(desktop|documents|downloads)\//i, ''), 40)}` : '') };
+    }
     case 'focusWindow':      return { kind: 'switch', text: String(p.title || p.name || '') };
     case 'closeApplication': return { kind: 'close', text: String(p.name || '') };
     case 'clickMouse':
@@ -52,7 +57,6 @@ export function describe(a) {
   }
 }
 
-// Errors the loop recovers from read as a retry; the raw text goes in the tooltip.
 export function friendlyError(err) {
   const e = String(err || '');
   if (/permission/i.test(e)) return { kind: 'error', text: e };

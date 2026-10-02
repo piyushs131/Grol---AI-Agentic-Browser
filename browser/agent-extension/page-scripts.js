@@ -1,7 +1,3 @@
-// Scripts evaluated inside the driven page.
-// SOM_SCRIPT installs window.__grolSoM: numbered "set of marks" for everything
-// clickable/typable, page-text analysis, and the DOM helpers the agent calls at
-// action time. CURSOR_SCRIPT installs the visible agent cursor.
 
 const SOM_VERSION = 18;
 const CURSOR_VERSION = 2;
@@ -11,11 +7,7 @@ const SOM_SCRIPT = `
   if (window.__grolSoM && window.__grolSoM.version === ${SOM_VERSION}) { return 'already'; }
 
   var MAX_MARKS = 110;
-  // Bounds the cursor:pointer sweep, the one pass that computes styles for
-  // arbitrary elements; huge DOMs must not blow the mark() timeout.
   var MAX_POINTER_PROBES = 6000;
-  // New per document, so the agent can tell a re-rendered page (same id,
-  // cached coordinates still meaningful) from a new one (id changed).
   var DOC_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
   var PALETTE = [
     '#E11D48', '#2563EB', '#059669', '#D97706', '#7C3AED',
@@ -34,16 +26,12 @@ const SOM_SCRIPT = `
     '[tabindex]:not([tabindex="-1"])'
   ].join(',');
 
-  // Sites build buttons from these with no role/href/handler attribute;
-  // they are found by a cursor:pointer / framework-handler check instead.
   var POINTER_TAGS = { DIV: 1, SPAN: 1, LI: 1, TD: 1, TH: 1, P: 1, IMG: 1, SECTION: 1, ARTICLE: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, LABEL: 1 };
 
   var UNAVAILABLE_RE = /(currently unavailable|out of stock|sold out|temporarily out of stock|no longer available|cannot be shipped|can't be shipped|cannot be delivered|does not ship to|doesn't ship to|not available for (delivery|shipping|purchase)|unavailable in your (area|location|region)|item is not available|we don't ship|choose a different delivery location)/i;
   var CAPTCHA_RE = /(captcha|verify (that )?you are (a )?human|are you a robot|unusual traffic|security check|i'm not a robot)/i;
   var LOGIN_RE = /(sign in to continue|please sign in|log in to continue|you must be signed in|session (has )?expired)/i;
 
-  // Ace, CodeMirror and Monaco render divs over an invisible proxy textarea,
-  // so the visible container is marked and written through the editor API.
   var CODE_EDITOR_SEL = '.ace_editor, .CodeMirror, .cm-editor, .monaco-editor';
 
   function isCodeEditor(el) {
@@ -53,7 +41,7 @@ const SOM_SCRIPT = `
   function setEditorValue(el, text) {
     try {
       if (el.classList.contains('ace_editor') && window.ace && window.ace.edit) {
-        window.ace.edit(el).setValue(text, -1);          // -1 = cursor to start
+        window.ace.edit(el).setValue(text, -1);
         return true;
       }
       if (el.CodeMirror) { el.CodeMirror.setValue(text); return true; }
@@ -108,8 +96,6 @@ const SOM_SCRIPT = `
     if (s.display === 'none' || s.visibility === 'hidden' || s.visibility === 'collapse') return false;
     if (parseFloat(s.opacity) < 0.05) return false;
     if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return false;
-    // An ancestor's opacity:0 or content-visibility hides el without showing
-    // in el's own computed style.
     try {
       if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false;
     } catch (e) {}
@@ -117,20 +103,17 @@ const SOM_SCRIPT = `
     return true;
   }
 
-  // Parent across shadow boundaries: a shadow root's parent is its host.
   function parentOf(node) {
     if (!node) return null;
     if (node.parentNode && node.parentNode.nodeType === 11) return node.parentNode.host || null;
     return node.parentElement || (node.parentNode && node.parentNode.host) || null;
   }
 
-  // Node.contains stops at shadow roots; this follows hosts upward.
   function containsDeep(outer, inner) {
     for (var n = inner; n; n = parentOf(n)) if (n === outer) return true;
     return false;
   }
 
-  // document.elementFromPoint retargets to the outermost shadow host.
   function deepHit(x, y) {
     var hit = document.elementFromPoint(x, y);
     for (var guard = 0; hit && hit.shadowRoot && guard < 12; guard++) {
@@ -149,7 +132,6 @@ const SOM_SCRIPT = `
     return a;
   }
 
-  // Every element of the document and of its open shadow roots.
   function allElements() {
     var out = [];
     (function walk(root) {
@@ -167,7 +149,6 @@ const SOM_SCRIPT = `
     return String(s == null ? '' : s).toLowerCase().replace(/[^\\p{L}\\p{N}]/gu, '');
   }
 
-  // Formatting inputs (phone numbers, card numbers) re-space what was typed.
   function valueHas(got, want) {
     got = String(got == null ? '' : got);
     want = String(want == null ? '' : want);
@@ -176,17 +157,11 @@ const SOM_SCRIPT = `
     return !!w && squash(got).indexOf(w) !== -1;
   }
 
-  // Disabled elements are kept and flagged: "greyed out" and "absent" need
-  // different next actions.
   function isDisabled(el) {
     try {
       if (el.disabled === true) return true;
-      // Covers controls inside <fieldset disabled>, which el.disabled misses.
       if (el.matches && el.matches(':disabled')) return true;
       if (el.getAttribute && el.getAttribute('aria-disabled') === 'true') return true;
-      // pointer-events:none is a hit-testing property, not a disabled state:
-      // Material Design puts it on decorative spans inside live menu items.
-      // Only honour it on real form controls.
       var s = styleOf(el);
       if (s && s.pointerEvents === 'none' &&
           /^(BUTTON|INPUT|SELECT|TEXTAREA|A|OPTION)$/.test(el.tagName)) return true;
@@ -198,12 +173,8 @@ const SOM_SCRIPT = `
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-  // Where a real click on el would land, whether it reaches el, and what
-  // element would swallow it if not.
   function probe(el, rect) {
     var vw = window.innerWidth, vh = window.innerHeight;
-    // Sample the on-screen part only: a tall element whose middle is below
-    // the fold is still clickable where it shows.
     var left = Math.max(rect.left, 0), right = Math.min(rect.right, vw);
     var top = Math.max(rect.top, 0), bottom = Math.min(rect.bottom, vh);
     var cx = clamp(rect.left + rect.width / 2, 1, vw - 1);
@@ -228,16 +199,14 @@ const SOM_SCRIPT = `
       if (hit === el || containsDeep(el, hit)) {
         return { x: x, y: y, covered: false, hitsTarget: true, blocker: null };
       }
-      // An ancestor on top is not an overlay, but clicking it never reaches
-      // the target's handler: events bubble up, not down.
       if (containsDeep(hit, el)) { if (!wrapper) wrapper = [x, y]; continue; }
       if (!blocker) blocker = hit;
     }
     if (wrapper) {
       return {
         x: wrapper[0], y: wrapper[1],
-        covered: false,        // nothing is blocking it - the aim is just wrong
-        hitsTarget: false,     // ... so dispatch through the DOM instead
+        covered: false,
+        hitsTarget: false,
         blocker: null
       };
     }
@@ -273,7 +242,6 @@ const SOM_SCRIPT = `
       if (el.labels && el.labels.length) push(el.labels[0].innerText || el.labels[0].textContent);
     }
     if (isCodeEditor(el)) {
-      // Its innerText is the rendered source, which would swamp the name.
       var cur = editorValue(el);
       var head = cur ? cur.replace(/\\s+/g, ' ').trim().slice(0, 40) : '';
       return 'code editor' + (head ? ' (' + head + ' ...)' : ' (empty)');
@@ -311,20 +279,24 @@ const SOM_SCRIPT = `
     return false;
   }
 
-  // Which open menu / listbox / dialog an element belongs to, so the model
-  // knows a choice is pending. ARIA-only on purpose: a z-index heuristic
-  // flagged sticky site headers as open menus.
+  var expandedIds = null, expandedAt = 0;
   function expandedOwnerOf(node) {
     var id = node.id;
     if (!id) return false;
-    try {
-      var esc = window.CSS && CSS.escape ? CSS.escape(id) : id.replace(/["\\\\]/g, '\\\\$&');
-      return !!document.querySelector(
-        '[aria-expanded="true"][aria-controls="' + esc + '"],' +
-        '[aria-expanded="true"][aria-owns="' + esc + '"]'
-      );
-    } catch (e) { return false; }
+    if (!expandedIds || Date.now() - expandedAt > 300) {
+      expandedIds = new Set();
+      expandedAt = Date.now();
+      try {
+        var open = document.querySelectorAll('[aria-expanded="true"][aria-controls],[aria-expanded="true"][aria-owns]');
+        for (var i = 0; i < open.length; i++) {
+          var ids = ((open[i].getAttribute('aria-controls') || '') + ' ' + (open[i].getAttribute('aria-owns') || '')).split(/\\s+/);
+          for (var j = 0; j < ids.length; j++) if (ids[j]) expandedIds.add(ids[j]);
+        }
+      } catch (e) {}
+    }
+    return expandedIds.has(id);
   }
+
 
   function floatingOwner(el) {
     var node = el, hops = 0;
@@ -353,15 +325,13 @@ const SOM_SCRIPT = `
     return out.length ? out : null;
   }
 
-  // React keeps props on the node under a per-build key; a framework onClick
-  // there is a clickable control even with no role, attribute or cursor.
   function hasHandler(node) {
     try {
       if (typeof node.onclick === 'function') return true;
       var keys = Object.keys(node);
       for (var i = 0; i < keys.length; i++) {
         var k = keys[i];
-        if (k.charCodeAt(0) !== 95) continue;              // fast reject: not "_"
+        if (k.charCodeAt(0) !== 95) continue;
         if (k.indexOf('__reactProps$') === 0 || k.indexOf('__reactEventHandlers$') === 0) {
           var p = node[k];
           if (p && (typeof p.onClick === 'function' ||
@@ -387,13 +357,11 @@ const SOM_SCRIPT = `
         seen.add(el);
         nodes.push(el);
       }
-      // Open shadow roots (web components).
       var all;
       try { all = root.querySelectorAll('*'); } catch (e) { return; }
       for (var j = 0; j < all.length; j++) {
         var node = all[j];
         if (node.shadowRoot) scan(node.shadowRoot);
-        // Cheap geometry checks first so getComputedStyle runs rarely.
         if (seen.has(node)) continue;
         if (!POINTER_TAGS[node.tagName]) continue;
         var r;
@@ -411,7 +379,6 @@ const SOM_SCRIPT = `
       }
     }
     scan(document);
-    // Code editor containers match none of the signals above.
     try {
       var eds = document.querySelectorAll(CODE_EDITOR_SEL);
       for (var e = 0; e < eds.length; e++) {
@@ -421,8 +388,6 @@ const SOM_SCRIPT = `
     return nodes;
   }
 
-  // "title — price" of the card a control sits in, used to tell apart
-  // repeated labels like thirty identical "Add to cart" buttons.
   var PRICE_RE = /(?:₹|Rs\\.?|INR|\\$|€|£)\\s?\\d[\\d,]*(?:\\.\\d+)?/;
 
   function titleWithin(node) {
@@ -433,30 +398,36 @@ const SOM_SCRIPT = `
       for (var j = 0; j < found.length; j++) {
         var t = '';
         try { t = (found[j].innerText || '').replace(/\\s+/g, ' ').trim(); } catch (e) {}
-        // A title is prose, not a price tag or a one-word affordance.
         if (t.length > 12 && !PRICE_RE.test(t.slice(0, 12))) return t;
       }
     }
     return '';
   }
 
+  var cardMemo = null;
   function cardContextOf(el) {
-    // Controls can sit ~17 levels deep, under wrappers with a price but no
-    // title, so climb until one ancestor has both.
-    var n = el.parentElement, hops = 0;
+    var n = el.parentElement, hops = 0, seen = [];
+    var found = '';
     while (n && hops++ < 22) {
-      var txt = '';
-      try { txt = (n.innerText || '').replace(/\\s+/g, ' ').trim(); } catch (e) {}
-      if (txt.length > 25 && txt.length < 1200) {
-        var price = txt.match(PRICE_RE);
-        if (price) {
-          var title = titleWithin(n);
-          if (title) return title.slice(0, 70) + ' — ' + price[0];
+      if (cardMemo && cardMemo.has(n)) { found = cardMemo.get(n); break; }
+      var raw = n.textContent || '';
+      if (raw.length > 6000) break;
+      seen.push(n);
+      if (raw.length > 25 && PRICE_RE.test(raw)) {
+        var txt = '';
+        try { txt = (n.innerText || '').replace(/\\s+/g, ' ').trim(); } catch (e) {}
+        if (txt.length > 25 && txt.length < 1200) {
+          var price = txt.match(PRICE_RE);
+          if (price) {
+            var title = titleWithin(n);
+            if (title) { found = title.slice(0, 70) + ' — ' + price[0]; break; }
+          }
         }
       }
       n = n.parentElement;
     }
-    return '';
+    if (cardMemo) for (var i = 0; i < seen.length; i++) cardMemo.set(seen[i], found);
+    return found;
   }
 
   function collect() {
@@ -472,11 +443,9 @@ const SOM_SCRIPT = `
       var rect;
       try { rect = el.getBoundingClientRect(); } catch (e) { continue; }
       if (!rect || rect.width < 8 || rect.height < 8) continue;
-      // Count what is out of reach so the model knows scrolling is worthwhile.
       if (rect.bottom < 2) { offscreen.above++; continue; }
       if (rect.top > vh - 2) { offscreen.below++; continue; }
       if (rect.right < 2 || rect.left > vw - 2) continue;
-      // Skip full-page wrappers that merely carry a tabindex.
       if (rect.width > vw * 0.98 && rect.height > vh * 0.9) continue;
 
       var p = probe(el, rect);
@@ -487,10 +456,6 @@ const SOM_SCRIPT = `
       });
     }
 
-    // Drop ancestors that are all-but-identical to a descendant we already have,
-    // so a link wrapping a div wrapping a span yields ONE mark, not three.
-    // Walks each candidate's ancestors instead of comparing all pairs, which
-    // is quadratic on pages with thousands of controls.
     var byEl = new Map();
     candidates.forEach(function (c) { byEl.set(c.el, c); });
     var redundant = new Set();
@@ -502,8 +467,6 @@ const SOM_SCRIPT = `
     });
     var keep = candidates.filter(function (c) { return !redundant.has(c); });
 
-    // Over the limit, drop the least useful candidates rather than
-    // truncating in reading order (which loses the lower half of the page).
     if (keep.length > MAX_MARKS) {
       keep.forEach(function (c) {
         var r = c.rect, s = 0;
@@ -523,20 +486,21 @@ const SOM_SCRIPT = `
       keep = keep.slice(0, MAX_MARKS);
     }
 
-    // Give repeated names the identity of their own item.
     var nameCount = {};
     keep.forEach(function (c) {
       var k = (c.name || '').trim();
       if (k) nameCount[k] = (nameCount[k] || 0) + 1;
     });
+    cardMemo = new Map();
+    var cardDeadline = Date.now() + 600;
     keep.forEach(function (c) {
       var k = (c.name || '').trim();
-      if (!k || nameCount[k] < 2 || k.length > 60) return;
+      if (!k || nameCount[k] < 2 || k.length > 60 || Date.now() > cardDeadline) return;
       var ctx = cardContextOf(c.el);
       if (ctx) c.name = k + ' | ' + ctx;
     });
+    cardMemo = null;
 
-    // Reading order: top-to-bottom, then left-to-right.
     keep.sort(function (p, q) {
       var dy = p.rect.top - q.rect.top;
       if (Math.abs(dy) > 12) return dy;
@@ -547,15 +511,11 @@ const SOM_SCRIPT = `
     return keep;
   }
 
-  // Computes the marks only; the agent draws them onto a copy of the
-  // screenshot (mark-render.js) so nothing flashes over the site.
   function mark() {
     var items = collect();
 
     var out = [];
     var covered = 0, disabled = 0;
-    // What is swallowing clicks, measured with the same elementFromPoint a
-    // real click goes through.
     var blockers = [];
     var blockerIndex = new Map();
     var menus = [];
@@ -572,7 +532,6 @@ const SOM_SCRIPT = `
         covered++;
         var bl = it.point.blocker;
         if (bl) {
-          // Attribute the block to the floating popover, not an inner span.
           var owner = bl;
           for (var up = 0; up < 6 && owner.parentElement; up++) {
             var os = styleOf(owner);
@@ -652,8 +611,6 @@ const SOM_SCRIPT = `
 
   var SKIP_TAGS = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1, HEAD: 1, TITLE: 1 };
 
-  // The page's words, split by whether they are on screen (what the
-  // screenshot shows) or not (a short digest of what scrolling reveals).
   function readText() {
     var visible = [];
     var hidden = [];
@@ -666,8 +623,6 @@ const SOM_SCRIPT = `
       walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, null);
     } catch (e) { return { onScreen: '', offScreen: '' }; }
 
-    // Measure each text run with a Range: a tall parent's rect would claim
-    // all of its text is on screen.
     var range = null;
     try { range = document.createRange(); } catch (e) { range = null; }
 
@@ -702,7 +657,7 @@ const SOM_SCRIPT = `
     }
     return {
       onScreen: visible.join(' \\u00b7 ').slice(0, 4200),
-      offScreen: hidden.join(' \\u00b7 ').slice(0, 1300)
+      offScreen: hidden.join(' \\u00b7 ').slice(0, 3000)
     };
   }
 
@@ -726,7 +681,6 @@ const SOM_SCRIPT = `
       if (r.width < 20 || r.height < 8) continue;
       var t = textOf(el, 240);
       if (t.length < 4) continue;
-      // A container that merely wraps a nested alert would repeat its text.
       var dup = false;
       for (var j = 0; j < out.length; j++) {
         if (out[j].indexOf(t) !== -1 || t.indexOf(out[j]) !== -1) { dup = true; break; }
@@ -760,8 +714,6 @@ const SOM_SCRIPT = `
     } catch (e) { explicit = []; }
     for (var i = 0; i < explicit.length && out.length < 4; i++) add(explicit[i], 'dialog');
 
-    // Unlabelled popovers (cookie walls, location bubbles) have no role. Rect
-    // is checked before computed style to keep this cheap on big pages.
     var all;
     try { all = document.body ? document.body.querySelectorAll('*') : []; } catch (e) { all = []; }
     for (var j = 0; j < all.length && out.length < 4; j++) {
@@ -771,7 +723,6 @@ const SOM_SCRIPT = `
       try { r2 = el.getBoundingClientRect(); } catch (e) { continue; }
       if (r2.width * r2.height < area * 0.012) continue;
       if (r2.bottom < 0 || r2.top > vh) continue;
-      // A full-width strip pinned to an edge is a sticky header, not a popover.
       if (r2.width > vw * 0.9 && r2.height < vh * 0.35 && (r2.top <= 2 || r2.bottom >= vh - 2)) continue;
       var s = styleOf(el);
       if (!s) continue;
@@ -851,8 +802,6 @@ const SOM_SCRIPT = `
     return (window.__grolSoM._els || [])[n - 1];
   }
 
-  // Share of the viewport an element covers. A real modal or scrim covers a
-  // big slab; a hit-test artifact (a menu's scroll container) is small.
   function screenShare(el) {
     try {
       var br = el.getBoundingClientRect();
@@ -861,14 +810,12 @@ const SOM_SCRIPT = `
     } catch (e) { return 100; }
   }
 
-  // Re-read a mark's live position at action time; the page may have moved.
   function resolveMark(n) {
     var el = markEl(n);
     if (!el || !el.isConnected) return null;
     var rect;
     try { rect = el.getBoundingClientRect(); } catch (e) { return null; }
     if (!rect || rect.width < 1 || rect.height < 1) return null;
-    // Scrolling a visible target would invalidate the model's screenshot.
     var offscreen = rect.top < 0 || rect.bottom > window.innerHeight ||
                     rect.left < 0 || rect.right > window.innerWidth;
     if (offscreen) {
@@ -891,7 +838,6 @@ const SOM_SCRIPT = `
     };
   }
 
-  // Native clicks do not always focus complex editors.
   function focusMark(n) {
     var el = markEl(n);
     if (!el || !el.isConnected) return false;
@@ -900,7 +846,6 @@ const SOM_SCRIPT = `
     return a === el || containsDeep(el, a);
   }
 
-  // A native <select> popup cannot be driven by input events.
   function selectOption(n, wanted) {
     var el = markEl(n);
     if (!el || !el.isConnected) return { success: false, error: 'mark ' + n + ' is gone' };
@@ -926,7 +871,6 @@ const SOM_SCRIPT = `
       return { success: false, error: 'no option matching "' + wanted + '"', options: avail };
     }
     try { el.focus({ preventScroll: true }); } catch (e) {}
-    // Through the prototype so an instance-level override cannot intercept it.
     var setSelect = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex').set;
     setSelect.call(el, pick.index);
     el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -934,10 +878,6 @@ const SOM_SCRIPT = `
     return { success: true, selected: (pick.text || '').trim() };
   }
 
-  // A slider's value is rarely what it shows (Amazon: 0-187, aria-valuetext
-  // "₹4,800"), so rangePlan binary-searches the position whose shown value
-  // is closest to the target without crossing it, then restores the slider
-  // and returns the drag start/end points.
   function rangeShown(el) {
     var txt = el.getAttribute('aria-valuetext') || '';
     var digits = txt.replace(/[^0-9.]/g, '');
@@ -956,7 +896,6 @@ const SOM_SCRIPT = `
     var tag = function (r) {
       return ((r.getAttribute('aria-label') || '') + ' ' + (r.id || '') + ' ' + (r.name || '')).toLowerCase();
     };
-    // A slider with two handles is two inputs: take the bound that was asked for.
     var group = picked ? all.filter(function (r) {
       return r.parentElement === picked.parentElement || (picked.form && r.form === picked.form);
     }) : all;
@@ -982,7 +921,7 @@ const SOM_SCRIPT = `
       return rangeShown(el).num;
     };
     var a = 0, b = Math.round((hi - lo) / step), best = null;
-    while (a <= b) {            // shown values rise with position
+    while (a <= b) {
       var mid = Math.floor((a + b) / 2), pos = lo + mid * step, val = probe(pos);
       if (want === 'max') { if (val <= goal) { best = pos; a = mid + 1; } else b = mid - 1; }
       else { if (val >= goal) { best = pos; b = mid - 1; } else a = mid + 1; }
@@ -990,7 +929,7 @@ const SOM_SCRIPT = `
     if (best === null) best = want === 'max' ? lo : hi;
     probe(best);
     var bestShown = rangeShown(el);
-    probe(original);            // leave the slider as the user saw it
+    probe(original);
 
     window.__grolSoM._range = el;
     var r = el.getBoundingClientRect();
@@ -1018,7 +957,6 @@ const SOM_SCRIPT = `
     return document.activeElement === el;
   }
 
-  // For sliders that ignore real input.
   function rangeForce(pos) {
     var el = window.__grolSoM._range;
     if (!el || !el.isConnected) return null;
@@ -1050,8 +988,6 @@ const SOM_SCRIPT = `
     return { found: false };
   }
 
-  // The single definition of "clickable", shared by the marker and the
-  // off-screen sweep so they can never disagree.
   function isActivatable(node) {
     if (!node || node.nodeType !== 1) return false;
     try {
@@ -1059,7 +995,7 @@ const SOM_SCRIPT = `
       if (typeof node.onclick === 'function') return true;
       var s = styleOf(node);
       if (s && s.cursor === 'pointer') return true;
-    } catch (e) { /* fall through to the handler test */ }
+    } catch (e) {  }
     return hasHandler(node);
   }
 
@@ -1074,7 +1010,6 @@ const SOM_SCRIPT = `
       clientY: Math.round(rect.top + rect.height / 2)
     };
 
-    // Frameworks listen on pointer/mouse events; a bare click() misses them.
     try {
       if (window.PointerEvent) {
         target.dispatchEvent(new PointerEvent('pointerdown', opts));
@@ -1082,8 +1017,6 @@ const SOM_SCRIPT = `
       }
       target.dispatchEvent(new MouseEvent('mousedown', opts));
       target.dispatchEvent(new MouseEvent('mouseup', opts));
-      // A dispatched click runs activation behaviour itself (links navigate,
-      // checkboxes toggle), so a follow-up el.click() would do it twice.
       target.dispatchEvent(new MouseEvent('click', opts));
     } catch (e) {
       try { target.click(); } catch (e2) {
@@ -1094,8 +1027,6 @@ const SOM_SCRIPT = `
     return { success: true, tag: target.tagName, label: textOf(target, 60) };
   }
 
-  // textContent needs no layout, so it rules out most of a big page before
-  // anything computes style or innerText. It is a superset of innerText.
   function mayCarry(el, want) {
     var raw = el.textContent || '';
     if (raw.length && raw.toLowerCase().indexOf(want) !== -1) return true;
@@ -1109,8 +1040,6 @@ const SOM_SCRIPT = `
     return String(t).replace(/\\s+/g, ' ').trim().toLowerCase();
   }
 
-  // Find and activate a control by label anywhere in the document: the
-  // recovery when a re-render detached the marked node.
   function activateText(wanted) {
     var want = String(wanted == null ? '' : wanted).replace(/\\s+/g, ' ').trim().toLowerCase();
     if (!want) return { success: false, error: 'no label to look for' };
@@ -1124,10 +1053,9 @@ const SOM_SCRIPT = `
       if (!t || t.indexOf(want) === -1) continue;
       var r = c.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) continue;
-      // Prefer the tightest label match that is actually on screen.
       var score = 100 - Math.min(60, t.length - want.length);
       if (r.top >= 0 && r.bottom <= window.innerHeight) score += 25;
-      if (best && containsDeep(best, c)) score += 10;    // deeper is tighter
+      if (best && containsDeep(best, c)) score += 10;
       if (score > bestScore) { bestScore = score; best = c; }
     }
     if (!best) return { success: false, error: 'nothing labelled "' + wanted + '" is on the page now' };
@@ -1136,13 +1064,9 @@ const SOM_SCRIPT = `
     return out;
   }
 
-  // Framework-controlled inputs revert a plain .value assignment; go through
-  // the native setter and announce it with an input event.
   function setFieldValue(el, text) {
     if (isCodeEditor(el)) return setEditorValue(el, text);
     if (el.isContentEditable) {
-      // Rich editors (ProseMirror, Draft, Lexical) keep their own model and
-      // follow beforeinput; replacing innerText would desync or break them.
       try {
         el.focus();
         var range = document.createRange();
@@ -1186,8 +1110,6 @@ const SOM_SCRIPT = `
     return true;
   }
 
-  // The field the agent meant when the named mark is not typable: prefer one
-  // inside the topmost dialog, then a label match.
   function bestField(hint) {
     var want = String(hint == null ? '' : hint).replace(/\\s+/g, ' ').trim().toLowerCase();
     var all = document.querySelectorAll('input, textarea, [contenteditable=""], [contenteditable="true"]');
@@ -1233,13 +1155,11 @@ const SOM_SCRIPT = `
     try { el.focus({ preventScroll: true }); } catch (e) {}
     if (!setFieldValue(el, text)) return { success: false, error: 'could not set the field value' };
 
-    // Some autocompletes only query on a key event, not on input alone.
     try {
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
       el.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
     } catch (e) {}
 
-    // Editors keep text in JS, so el.value is empty even on success.
     var got = isCodeEditor(el) ? (editorValue(el) || '')
             : el.isContentEditable ? (el.innerText || '') : (el.value || '');
     var ok = valueHas(got, text);
@@ -1251,7 +1171,6 @@ const SOM_SCRIPT = `
       field: isCodeEditor(el) ? 'code editor'
            : (el.placeholder || el.getAttribute('aria-label') || el.name || el.tagName)
     };
-    // The browser drops values these inputs cannot parse, leaving them empty.
     if (!ok && FORMAT_HINTS[kind]) out.error = 'this is a ' + kind + ' field; it only accepts ' + FORMAT_HINTS[kind];
     return out;
   }
@@ -1261,7 +1180,6 @@ const SOM_SCRIPT = `
     month: 'YYYY-MM', week: 'YYYY-Www', number: 'plain digits', email: 'an email address'
   };
 
-  // What the focused field (inside shadow roots too) currently holds.
   function activeValue() {
     var a = deepActive();
     if (!a || a === document.body || a === document.documentElement) return null;
@@ -1277,8 +1195,6 @@ const SOM_SCRIPT = `
     return el.isContentEditable ? (el.innerText || '') : (el.value == null ? null : String(el.value));
   }
 
-  // mark() only covers the viewport; find a labelled control anywhere in the
-  // document and scroll it into view so a pointer click can follow.
   function findActionable(wanted) {
     var want = String(wanted == null ? '' : wanted).replace(/\\s+/g, ' ').trim().toLowerCase();
     if (!want) return { found: false };
@@ -1316,10 +1232,6 @@ const SOM_SCRIPT = `
     };
   }
 
-  // Records where the next real click lands. A click can reach its control
-  // and change nothing visible (a counter, a request, a delayed update); only
-  // a click that never arrived may be repeated through the DOM, or "Add to
-  // cart" would be pressed twice.
   function armClick() {
     window.__grolSoM._clickPath = null;
     if (!window.__grolClickTap) {
@@ -1347,15 +1259,12 @@ const SOM_SCRIPT = `
     return false;
   }
 
-  // Would a click at (x, y) right now reach a control with this label?
-  // Lazy-loading pages reflow between resolving a point and clicking it.
   function pointHits(x, y, wanted) {
     var want = String(wanted == null ? '' : wanted).replace(/\\s+/g, ' ').trim().toLowerCase();
     var hit = null;
     try { hit = deepHit(x, y); } catch (e) { return false; }
     if (!hit) return false;
     if (!want) return true;
-    // The hit is often an inner span of the control, so walk up a little.
     var n = hit, hops = 0;
     while (n && hops++ < 5) {
       var t = labelText(n);
@@ -1373,8 +1282,6 @@ const SOM_SCRIPT = `
       return want ? activateText(wanted) : { success: false, error: 'mark ' + n + ' is gone' };
     }
 
-    // 1. The innermost descendant that both carries the wanted label and is
-    //    actually activatable - the real button inside the bar.
     var target = null;
     if (want) {
       var cands = el.querySelectorAll('*');
@@ -1386,12 +1293,9 @@ const SOM_SCRIPT = `
         if (!isActivatable(c)) continue;
         var r = c.getBoundingClientRect();
         if (r.width < 1 || r.height < 1) continue;
-        // Deepest match wins: it is the tightest control carrying the label.
         if (!target || target.contains(c)) target = c;
       }
     }
-    // 2. Otherwise the element itself if it is activatable, else its nearest
-    //    activatable ancestor (the <a> that wraps a padded nav <span>).
     if (!target) {
       if (isActivatable(el)) target = el;
       else {
@@ -1468,8 +1372,6 @@ const CURSOR_SCRIPT = `
     state.x = x; state.y = y;
   }
 
-  // A CSS transition, returned immediately: rAF can be throttled to ~1fps
-  // and the cosmetic cursor must never delay an action.
   function moveTo(x, y, duration) {
     var el = node();
     var dur = Math.max(120, Math.min(duration || 380, 900));

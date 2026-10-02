@@ -1,3 +1,4 @@
+const cp = require('child_process');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -13,9 +14,7 @@ const PROTECTED_DIRS_UNIX = [
   '/lib', '/lib64', '/private/etc', '/private/var', '/opt/homebrew',
   '/Library/LaunchAgents', '/Library/LaunchDaemons', '/Library/Keychains', '/Library/Security'
 ];
-// Per-user temp lives under /var/folders on macOS.
 const ALLOWED_UNDER_PROTECTED = ['/var/folders', '/private/var/folders'];
-// Credentials and anything that runs code at login or in every new shell.
 const PROTECTED_IN_HOME = [
   '.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config/gcloud', '.netrc', '.git-credentials',
   '.zshrc', '.zprofile', '.zshenv', '.bashrc', '.bash_profile', '.profile',
@@ -26,10 +25,51 @@ const ALIASES = {
   desktop: 'Desktop', documents: 'Documents', downloads: 'Downloads', pictures: 'Pictures',
   music: 'Music', videos: 'Videos', movies: 'Movies', onedrive: 'OneDrive'
 };
-// Folders that must never be deleted or moved away wholesale.
 const UNREMOVABLE_IN_HOME = [...Object.values(ALIASES), 'Library', 'Applications', 'AppData'];
 
 const MAX_READ_BYTES = 10 * 1024 * 1024;
+const MAX_DOC_BYTES = 60 * 1024 * 1024;
+const MAX_DOC_CHARS = 60000;
+const TEXTUTIL_EXT = new Set(['.doc', '.docx', '.rtf', '.rtfd', '.odt', '.html', '.htm', '.webarchive', '.wordml']);
+const PLAIN_EXT = new Set(['.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.xml', '.yaml', '.yml', '.log', '.ini', '.conf']);
+
+const PDF_JXA = [
+  'ObjC.import("PDFKit"); ObjC.import("Foundation");',
+  'function run(argv) {',
+  '  var doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath(argv[0]));',
+  '  if (!doc || doc.isNil()) return JSON.stringify({ error: "not a readable PDF" });',
+  '  if (doc.isLocked && !doc.unlockWithPassword("")) return JSON.stringify({ error: "the PDF is password protected" });',
+  '  var n = doc.pageCount, out = [];',
+  '  for (var i = 0; i < n; i++) { var p = doc.pageAtIndex(i); out.push(p && !p.isNil() ? (ObjC.unwrap(p.string) || "") : ""); }',
+  '  return JSON.stringify({ pages: n, text: out.join("\\n\\n") });',
+  '}'
+].join('\n');
+
+function execText(file, args, timeout = 60000) {
+  return new Promise((resolve, reject) => {
+    cp.execFile(file, args, { timeout, maxBuffer: 64 << 20, encoding: 'utf8' }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(String(stderr || err.message).trim().slice(0, 300)));
+      resolve(String(stdout));
+    });
+  });
+}
+
+async function pdfText(file, platform) {
+  if (platform === 'darwin') {
+    const out = JSON.parse((await execText('osascript', ['-l', 'JavaScript', '-e', PDF_JXA, file])).trim() || '{}');
+    if (out.error) throw new Error(out.error);
+    return { text: out.text || '', pages: Number(out.pages) || 0, via: 'PDFKit' };
+  }
+  try {
+    return { text: await execText('pdftotext', ['-layout', file, '-']), via: 'pdftotext' };
+  } catch (_) {
+    throw new Error('Reading PDFs here needs pdftotext (poppler-utils) installed');
+  }
+}
+
+function tidyText(text) {
+  return String(text).replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
 const MAX_LIST_ITEMS = 5000;
 const MAX_SEARCH_RESULTS = 500;
 const MAX_SEARCH_ENTRIES = 50000;
@@ -43,9 +83,6 @@ const isInside = (child, parent, caseless) => {
 
 const lexists = (p) => { try { fs.lstatSync(p); return true; } catch (_) { return false; } };
 
-// Resolves symlinks through the deepest existing ancestor, so a link inside an
-// allowed folder cannot point into a protected one. A dangling link is followed
-// too: writing through it would create its target.
 function realPath(target, hops = 0) {
   if (hops > 40) throw new Error(`Too many levels of symbolic links: ${target}`);
   let existing = target;
@@ -65,7 +102,6 @@ function realPath(target, hops = 0) {
   }
 }
 
-// "*.txt" / "test-?" are globs; anything else is a case-insensitive substring match.
 function globMatcher(pattern) {
   if (!pattern.includes('*') && !pattern.includes('?')) {
     const plain = pattern.toLowerCase();
@@ -79,16 +115,12 @@ function globMatcher(pattern) {
   return (name) => regex.test(name);
 }
 
-// Path policy: aliases (desktop/, ~/...) stay inside their folder, relative
-// paths are relative to home, and system / credential locations are refused.
 class PathPolicy {
   constructor({ platform = process.platform, home = os.homedir() } = {}) {
     this.platform = platform;
     this.home = path.resolve(home);
     this.caseless = platform === 'win32' || platform === 'darwin';
     this.systemDirs = platform === 'win32' ? PROTECTED_DIRS_WIN : PROTECTED_DIRS_UNIX;
-    // Both spellings, so a symlinked home (/var -> /private/var) is matched either way;
-    // the account's real home stays protected even when another home is configured.
     const homes = [...new Set([this.home, os.homedir()].flatMap((h) => [path.resolve(h), realPath(path.resolve(h))]))];
     const inHomes = (list) => homes.flatMap((h) => list.map((p) => path.join(h, ...p.split('/'))));
     this.homes = homes;
@@ -137,7 +169,6 @@ class PathPolicy {
     return this.caseless ? a.toLowerCase() === b.toLowerCase() : a === b;
   }
 
-  // Home, its ancestors, filesystem roots and the standard user folders.
   assertRemovable(p) {
     for (const candidate of new Set([p, realPath(p)])) {
       if (path.parse(candidate).root === candidate ||
@@ -174,8 +205,14 @@ class FilesystemModule extends CapabilityModule {
     this.policy = new PathPolicy({ platform: this.platform, home: context.homeDir || os.homedir() });
 
     this.registerAction('readFile', this.readFile, {
-      description: 'Read the contents of a file',
+      description: 'Read the contents of a plain text file',
       parameters: ['path', 'encoding'],
+      riskLevel: 'low'
+    });
+
+    this.registerAction('readDocument', this.readDocument, {
+      description: 'Read the text of a document: PDF, Word (.doc/.docx), RTF, ODT, HTML or plain text. Needs no installed tools',
+      parameters: ['path', 'maxChars'],
       riskLevel: 'low'
     });
 
@@ -258,7 +295,6 @@ class FilesystemModule extends CapabilityModule {
     return this.policy.resolve(targetPath);
   }
 
-  // Copy/move into an existing folder keeps the source's file name.
   async _destination(source, destination) {
     const dest = this._validatePath(destination);
     const stat = await fsp.stat(dest).catch(() => null);
@@ -273,6 +309,36 @@ class FilesystemModule extends CapabilityModule {
     if (stat.size > MAX_READ_BYTES) throw new Error(`File exceeds the ${MAX_READ_BYTES / 1024 / 1024}MB read limit`);
     const content = await fsp.readFile(safePath, enc);
     return { path: safePath, content, size: stat.size, encoding: enc };
+  }
+
+  async readDocument({ path: filePath, maxChars } = {}) {
+    const safePath = this._validatePath(filePath);
+    const stat = await fsp.stat(safePath);
+    if (!stat.isFile()) throw new Error(`Not a regular file: ${safePath}`);
+    if (stat.size > MAX_DOC_BYTES) throw new Error(`File exceeds the ${MAX_DOC_BYTES / 1024 / 1024}MB document limit`);
+    const ext = path.extname(safePath).toLowerCase();
+    const platform = this.platform || process.platform;
+    let text, pages, via;
+    if (ext === '.pdf') {
+      ({ text, pages, via } = await pdfText(safePath, platform));
+    } else if (TEXTUTIL_EXT.has(ext) && platform === 'darwin') {
+      text = await execText('textutil', ['-convert', 'txt', '-stdout', safePath]);
+      via = 'textutil';
+    } else {
+      const buf = await fsp.readFile(safePath);
+      if (!PLAIN_EXT.has(ext) && buf.subarray(0, 8000).includes(0)) {
+        throw new Error(`${path.basename(safePath)} is not a text document this helper can read`);
+      }
+      text = buf.toString('utf8');
+      via = 'text';
+    }
+    const clean = tidyText(text);
+    const limit = Math.min(MAX_DOC_CHARS, Math.max(1000, Number(maxChars) || MAX_DOC_CHARS));
+    return {
+      path: safePath, via, pages, chars: clean.length, truncated: clean.length > limit,
+      text: clean.slice(0, limit),
+      ...(clean ? {} : { note: 'No text found: the document may be a scanned image with no text layer.' })
+    };
   }
 
   async writeFile({ path: filePath, content, encoding } = {}) {

@@ -1,6 +1,3 @@
-// Decides how risky a module.action is and whether the user must approve it.
-// A module's own riskLevel/requiresConfirmation is honoured, and this table
-// can only raise it, so a module under-declaring a risk cannot weaken policy.
 
 const { RISK_LEVELS } = require('../../shared/schemas/action-schema');
 
@@ -16,12 +13,10 @@ const RISK_FLOOR = new Map(Object.entries({
   'filesystem.writeFile': RISK_LEVELS.HIGH,
   'filesystem.appendFile': RISK_LEVELS.HIGH,
   'filesystem.moveFile': RISK_LEVELS.HIGH,
-  // fs.copyFile silently overwrites an existing destination.
   'filesystem.copyFile': RISK_LEVELS.HIGH,
   'filesystem.createDirectory': RISK_LEVELS.HIGH,
   'browser.evaluate': RISK_LEVELS.HIGH,
   'browser.executeScript': RISK_LEVELS.HIGH,
-  // Hands any local file to a web page, bypassing the filesystem module's guards.
   'browser.uploadFile': RISK_LEVELS.HIGH,
   'process.closeApplication': RISK_LEVELS.HIGH,
   'desktop.closeApplication': RISK_LEVELS.HIGH,
@@ -41,9 +36,6 @@ const RISK_FLOOR = new Map(Object.entries({
   'desktop.dragMouse': RISK_LEVELS.MEDIUM
 }));
 
-// Driving the UI (keys, quitting an app, which prompts to save) is the whole
-// point of OS Control; asking before every keystroke would make it unusable.
-// Anything that touches files, runs code or kills processes is never listed.
 const AUTONOMOUS_ACTIONS = new Set([
   'desktop.pressKey',
   'desktop.hotkey',
@@ -60,9 +52,6 @@ function needsApproval(name, risk, meta) {
   return risk === RISK_LEVELS.HIGH && !AUTONOMOUS_ACTIONS.has(name);
 }
 
-// Judges both the requested module.action and the one that will actually run
-// (with its manifest meta), so an alias or cross-module fallback such as
-// process.runCommand or screen.deleteFile cannot slip past the policy.
 function assessRisk(requested, resolved, resolvedMeta) {
   const candidates = [{ name: requested, meta: null }];
   if (resolved && resolved !== requested) candidates.push({ name: resolved, meta: resolvedMeta });
