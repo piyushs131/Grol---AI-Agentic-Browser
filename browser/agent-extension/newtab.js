@@ -1,22 +1,72 @@
 const $ = (id) => document.getElementById(id);
 const q = $('q'), log = $('log'), hint = $('hint');
 
+// Cards per mode; Search mode shows none because a card there would just be a web search.
 const SUGGESTIONS = {
-  Inspiration: [
-    'Compare prices for iPhone 15 Pro across Amazon and Flipkart, then tell me the best deal',
-    'Find and summarise the top 3 trending tech stories on HackerNews today'
-  ],
-  Coding: [
-    'Open codechef.com/ide, write a C++ program that adds two numbers, and run it',
-    'Create a folder named crud-app on my Desktop and open it in VS Code'
-  ],
-  Shopping: [
-    'Find an LG TV under 25000 on amazon.in and add the cheapest one to the cart',
-    'Order ice cream from blinkit'
-  ],
-  Travel:        ['Find a one-way flight from Delhi to Mumbai next Friday, cheapest option'],
-  Entertainment: ['Find what is trending on YouTube today and summarise the top 3'],
-  Learning:      ['Find a beginner tutorial for Rust and summarise what it covers']
+  action: {
+    Inspiration: [
+      'Show me a quote of the day',
+      'Find a fun fact about cats',
+      'Show the top 3 stories on Hacker News'
+    ],
+    Coding: [
+      'Open GitHub and show trending repositories',
+      'Explain what an API is in simple words',
+      'Find a 5-minute video that explains Python'
+    ],
+    Shopping: [
+      'Find wireless earbuds under ₹2,000 on Amazon',
+      'Show the price of iPhone 16 on Flipkart',
+      'Find a coffee mug under ₹500 on Amazon'
+    ],
+    Travel: [
+      "What's the weather in Goa today?",
+      'Show top places to visit in Jaipur',
+      'How far is Mumbai from Pune?'
+    ],
+    Entertainment: [
+      'Play lo-fi music on YouTube',
+      'Show trending videos on YouTube',
+      'Find a funny cat video'
+    ],
+    Learning: [
+      'Teach me one new English word',
+      'Show today\'s top news headlines',
+      'Explain how rainbows form'
+    ]
+  },
+  os: {
+    Inspiration: [
+      'Open Notes and write 3 goals for today',
+      'Take a screenshot and save it to my Desktop',
+      'Open Calendar and show today'
+    ],
+    Coding: [
+      'Create a folder named my-project on my Desktop',
+      'Open VS Code',
+      'Open Terminal'
+    ],
+    Shopping: [
+      'Open Notes and write a shopping list: milk, eggs, bread',
+      'Open Calculator',
+      'Create a note called Wishlist'
+    ],
+    Travel: [
+      'Open Maps and show Goa',
+      'Write a packing list for a weekend trip in Notes',
+      'Open the Weather app'
+    ],
+    Entertainment: [
+      'Open Music',
+      'Open Photo Booth',
+      'Open my Pictures folder'
+    ],
+    Learning: [
+      'Open Dictionary and look up "happy"',
+      'Open my Downloads folder',
+      'Write today\'s to-do list in Notes'
+    ]
+  }
 };
 
 const MODE_HINT = Object.freeze({
@@ -45,7 +95,7 @@ function line(tag, text, cls) {
 
 function renderCats() {
   $('cats').replaceChildren();
-  Object.keys(SUGGESTIONS).forEach((c) => {
+  Object.keys(SUGGESTIONS[mode] || {}).forEach((c) => {
     const b = document.createElement('button');
     b.className = 'cat' + (c === category ? ' active' : '');
     b.textContent = c;
@@ -57,7 +107,7 @@ function renderCats() {
 function renderCards() {
   const box = $('cards');
   box.replaceChildren();
-  (SUGGESTIONS[category] || []).forEach((t) => {
+  ((SUGGESTIONS[mode] || {})[category] || []).forEach((t) => {
     const d = document.createElement('div');
     d.className = 'card';
     const text = document.createElement('span');
@@ -76,6 +126,9 @@ function setMode(m) {
   document.querySelectorAll('.mode').forEach((b) =>
     b.classList.toggle('active', b.dataset.mode === m));
   hint.innerHTML = MODE_HINT[m] || '';
+  document.querySelector('.catlabel').hidden = !SUGGESTIONS[m];
+  renderCats();
+  renderCards();
 }
 
 document.querySelectorAll('.mode').forEach((b) => {
@@ -148,7 +201,5 @@ q.addEventListener('keydown', (e) => {
 });
 
 setMode('action');
-renderCats();
-renderCards();
 osHealth();
 setInterval(osHealth, 8000);
