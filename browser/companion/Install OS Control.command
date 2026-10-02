@@ -21,8 +21,8 @@ fi
 
 say "▶ Installing the Grol OS Control helper…"
 mkdir -p "$DEST/logs" "$HOME/Library/LaunchAgents"
-rsync -a --exclude logs --exclude '.agent-os-data' \
-  $( [ -x "$DEST/bin/node" ] && echo "--exclude bin/node" ) "$SRC/" "$DEST/"
+rsync -a --exclude /logs --exclude '.agent-os-data' \
+  $( [ -x "$DEST/bin/node" ] && echo "--exclude /bin/node" ) "$SRC/" "$DEST/"
 xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
 
 NODE="$DEST/bin/node"
