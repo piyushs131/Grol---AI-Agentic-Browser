@@ -56,22 +56,33 @@ for you and, if you allow it, use the apps on your Mac.
 ## Requirements
 
 - A Mac with Apple Silicon (M1 or newer)
-- Node.js 20 or newer
 - A Gemini API key, free from [Google AI Studio](https://aistudio.google.com/apikey)
-- To build the app yourself: Xcode Command Line Tools, about 150 GB of free disk
-  and 16 GB of RAM (see [browser/README.md](browser/README.md))
+- Only to build the app yourself: Node.js 22 or newer, Xcode Command Line Tools,
+  about 150 GB of free disk and 16 GB of RAM (see [browser/README.md](browser/README.md))
 
 ## Getting started
 
-### 1. Build and run Grol
+### 1. Install Grol
+
+Paste this into Terminal:
 
 ```sh
-cd browser
-scripts/sync.sh           # download the browser engine source (first time: 1–3 h)
-scripts/apply-patches.sh  # apply Grol's changes
-scripts/build.sh          # build and install ~/Applications/Grol.app (first time: 3–5 h)
-scripts/run.sh            # launch Grol
+curl -fsSL https://raw.githubusercontent.com/piyushs131/Grol---AI-Agentic-Browser/main/install.sh | bash
 ```
+
+It downloads the latest release into `/Applications` and opens it. Run it again
+to update; your profile and settings are kept. Downloading this way avoids the
+"Apple could not verify Grol" dialog that the test builds otherwise show.
+
+<details>
+<summary>Prefer the disk image?</summary>
+
+Download `Grol-<version>-arm64.dmg` from
+[Releases](https://github.com/piyushs131/Grol---AI-Agentic-Browser/releases),
+drag Grol into Applications and open it. When macOS says it can't verify Grol,
+click **Done**, then **System Settings → Privacy & Security → Open Anyway**. You
+only do this once.
+</details>
 
 ### 2. Add your API key
 
@@ -81,7 +92,7 @@ API key in Settings. It's stored only in your browser profile.
 ### 3. (Optional) Turn on OS Control
 
 ```sh
-browser/companion/install-autostart.sh
+curl -fsSL https://raw.githubusercontent.com/piyushs131/Grol---AI-Agentic-Browser/main/install.sh | bash -s -- --os-control --no-launch
 ```
 
 This installs the helper as a login item on `127.0.0.1:7777`. Then open
@@ -92,7 +103,8 @@ This installs the helper as a login item on `127.0.0.1:7777`. Then open
 launchctl kickstart -k gui/$(id -u)/com.grol.os-companion
 ```
 
-To uninstall: `browser/companion/install-autostart.sh --remove`
+From a clone of this repo you can use `browser/companion/install-autostart.sh`
+instead, and `browser/companion/install-autostart.sh --remove` to uninstall.
 
 ## Privacy and security
 
@@ -111,8 +123,22 @@ npm install       # installs the helper's dependencies
 npm run check     # syntax checks, daemon smoke test and the full test suite
 ```
 
-The extension is plain JavaScript with no build step: edit it and relaunch with
-`browser/scripts/run.sh`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+You don't need to build the browser to work on the agent. Pick one:
+
+- **Stock Chromium (recommended):** `browser/scripts/run-chromium.sh` downloads
+  an official Chromium build once (~180 MB) and launches it with the agent
+  loaded from `browser/agent-extension/`.
+- **Your own Chrome:** open `chrome://extensions`, turn on **Developer mode**,
+  click **Load unpacked** and choose `browser/agent-extension/`. Chrome shows a
+  "started debugging this browser" bar while the agent works.
+- **The installed Grol app:** `browser/scripts/run.sh` uses `~/Applications/Grol.app`
+  with the agent from this repo.
+
+All three give you the agent, side panel, ad blocking and OS Control. Only
+Grol's browser patches (branding, theme, tab defaults) are missing. The extension
+is plain JavaScript with no build step: edit it and relaunch. Building the browser
+itself (4–8 hours the first time) is only needed to change `browser/patches/`;
+see [browser/README.md](browser/README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status
 

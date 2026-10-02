@@ -5,7 +5,8 @@ Thanks for helping. A few ground rules keep the fork maintainable.
 ## Where changes go
 
 - **Agent behaviour or UI** → `browser/agent-extension/`. Plain ES modules with no
-  build step. Reload by relaunching with `browser/scripts/run.sh`.
+  build step. Reload by relaunching with `browser/scripts/run-chromium.sh`
+  (no browser build needed) or `browser/scripts/run.sh`.
 - **Desktop automation** → `ai-agent-os/modules/<module>/`. Each module registers
   its actions with a risk level. Anything that writes, deletes or executes must be
   `high` so the user is asked first.

@@ -72,5 +72,11 @@ if [ -n "${GROL_SIGN_ID:-}" ] && [ -n "${GROL_NOTARY_PROFILE:-}" ]; then
   xcrun notarytool submit "$DMG" --keychain-profile "$GROL_NOTARY_PROFILE" --wait
   xcrun stapler staple "$DMG"
 fi
+
+echo "▶ Zip for install.sh"
+ZIP="$OUT/Grol-$VERSION-arm64.zip"
+rm -f "$ZIP" "$STAGE/Applications"
+ditto -c -k --sequesterRsrc "$STAGE" "$ZIP"
 rm -rf "$STAGE"
 echo "  ✓ $DMG ($(du -h "$DMG" | cut -f1))"
+echo "  ✓ $ZIP ($(du -h "$ZIP" | cut -f1))"

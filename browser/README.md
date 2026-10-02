@@ -42,15 +42,32 @@ Chrome) to refresh `resources/logo/`, then re-apply and rebuild.
 The extension's ID (`ebhlbffbihmgefabpeglnhjadadhcmjc`) is fixed by the `key`
 field in `agent-extension/manifest.json`, so settings survive rebuilds.
 
+## Run without building
+
+    scripts/run-chromium.sh    # official Chromium snapshot + the agent from agent-extension/
+
+Downloads an official Chromium build once into
+`~/Library/Application Support/Grol/chromium` and launches it with the agent
+loaded unpacked (same extension ID, so OS Control works). Use it for agent
+work; the patches below are not applied. `--update` fetches a newer snapshot,
+`GROL_CHROMIUM_REV=<n>` pins one.
+
 ## Package
 
-    scripts/package.sh         # dist/Grol-<version>-arm64.dmg
+    scripts/package.sh         # dist/Grol-<version>-arm64.dmg and .zip
 
 This produces a disk image containing Grol.app, a double-click installer for OS
-Control (it carries its own Node) and a short read-me. It needs the OS Control
+Control (it carries its own Node) and a short read-me, plus a zip of the same
+files for `install.sh`. It needs the OS Control
 helper installed locally first, because the helper's dependencies are reused.
 Set `GROL_SIGN_ID` and `GROL_NOTARY_PROFILE` to sign and notarize with an Apple
 Developer ID; without them the image is ad-hoc signed.
+
+To publish a release, attach both files to a GitHub release:
+
+    gh release create v<version> dist/Grol-<version>-arm64.zip dist/Grol-<version>-arm64.dmg
+
+`install.sh` at the repo root always installs the zip from the latest release.
 
 ## Changing the browser
 
