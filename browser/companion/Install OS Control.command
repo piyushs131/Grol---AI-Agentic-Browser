@@ -57,8 +57,18 @@ if ! curl -s -m 2 http://127.0.0.1:7777/health >/dev/null 2>&1; then
 fi
 say "✓ Helper running (starts automatically at login)."
 
-curl -s -m 10 -X POST http://127.0.0.1:7777/execute -H 'content-type: application/json' \
-  -d '{"task_id":"install","module":"desktop","action":"requestPermissions","parameters":{}}' >/dev/null 2>&1 || true
+desktop() {
+  curl -s -m 10 -X POST http://127.0.0.1:7777/execute -H 'content-type: application/json' \
+    -d "{\"task_id\":\"install\",\"module\":\"desktop\",\"action\":\"$1\",\"parameters\":{}}" 2>/dev/null || true
+}
+granted() { desktop getPermissions | grep -q "\"$1\":true"; }
+
+if granted accessibility && granted screenRecording; then
+  say "✓ OS Control already has Accessibility and Screen Recording permission."
+  exit 0
+fi
+
+desktop requestPermissions >/dev/null
 printf '%s' "$NODE" | pbcopy
 open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 
@@ -67,15 +77,35 @@ cat <<EOF
 ────────────────────────────────────────────────────────────
  One last step: let OS Control use your Mac
 ────────────────────────────────────────────────────────────
- In System Settings → Privacy & Security, turn this file ON under
- BOTH "Accessibility" and "Screen Recording":
+ System Settings is open. Under Privacy & Security, turn ON "node"
+ in BOTH "Accessibility" and "Screen Recording".
 
+ If "node" isn't listed: click +, press Command-Shift-G, paste
+ (the path is on your clipboard), press Return, click Open.
    $NODE
 
- (The path is on your clipboard: click +, press Command-Shift-G,
-  paste, press Return, click Open.)
-
- Then restart the helper:
-   launchctl kickstart -k gui/$UID_/$LABEL
+ Waiting for you to turn them on…
 ────────────────────────────────────────────────────────────
 EOF
+
+# Permissions are checked in fresh processes, so they show up here as soon as
+# the user switches them on. Restart once at the end so the helper starts clean.
+ax=0; sr=0
+for _ in $(seq 1 300); do
+  if [ $ax = 0 ] && granted accessibility; then
+    ax=1; say "  ✓ Accessibility on"
+    [ $sr = 0 ] && open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+  fi
+  if [ $sr = 0 ] && granted screenRecording; then sr=1; say "  ✓ Screen Recording on"; fi
+  [ $ax = 1 ] && [ $sr = 1 ] && break
+  sleep 2
+done
+
+if [ $ax = 1 ] && [ $sr = 1 ]; then
+  launchctl kickstart -k "gui/$UID_/$LABEL" 2>/dev/null || true
+  for _ in $(seq 1 20); do curl -s -m 1 http://127.0.0.1:7777/health >/dev/null 2>&1 && break; sleep 0.5; done
+  say "✓ OS Control is ready."
+else
+  say "  Still waiting? No need to run anything else: Grol picks up the permissions"
+  say "  as soon as you turn on \"node\" under Accessibility and Screen Recording."
+fi

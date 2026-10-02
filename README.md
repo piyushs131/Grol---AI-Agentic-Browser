@@ -91,11 +91,8 @@ same way to add OS Control.
 
 System Settings opens during the install. In **Privacy & Security**, turn on
 **node** (the helper, at the path the installer prints) under both
-**Accessibility** and **Screen Recording**. Then restart the helper:
-
-```sh
-launchctl kickstart -k gui/$(id -u)/com.grol.os-companion
-```
+**Accessibility** and **Screen Recording**. The installer waits, notices when
+both are on and finishes by itself. If they're already on, this step is skipped.
 
 ### 3. Add your API key
 
